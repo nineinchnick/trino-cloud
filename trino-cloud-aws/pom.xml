@@ -19,12 +19,12 @@
     <artifactId>trino-cloud-aws</artifactId>
     <description>Trino Cloud</description>
     <packaging>trino-plugin</packaging>
-    <version>0.3</version>
+    <version>0.4-SNAPSHOT</version>
 
     <parent>
         <groupId>pl.net.was</groupId>
         <artifactId>trino-cloud</artifactId>
-        <version>0.3</version>
+        <version>0.4-SNAPSHOT</version>
     </parent>
 
     <properties>
