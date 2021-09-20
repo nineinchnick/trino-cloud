@@ -34,7 +34,29 @@ import io.trino.spi.statistics.ComputedStatistics;
 import io.trino.spi.type.ArrayType;
 import io.trino.spi.type.Type;
 import software.amazon.awssdk.core.SdkField;
+import software.amazon.awssdk.services.ec2.model.AvailabilityZone;
+import software.amazon.awssdk.services.ec2.model.Image;
 import software.amazon.awssdk.services.ec2.model.Instance;
+import software.amazon.awssdk.services.ec2.model.InstanceTypeInfo;
+import software.amazon.awssdk.services.ec2.model.KeyPairInfo;
+import software.amazon.awssdk.services.ec2.model.LaunchTemplate;
+import software.amazon.awssdk.services.ec2.model.NatGateway;
+import software.amazon.awssdk.services.ec2.model.NetworkInterface;
+import software.amazon.awssdk.services.ec2.model.PlacementGroup;
+import software.amazon.awssdk.services.ec2.model.PrefixList;
+import software.amazon.awssdk.services.ec2.model.PublicIpv4Pool;
+import software.amazon.awssdk.services.ec2.model.Region;
+import software.amazon.awssdk.services.ec2.model.RouteTable;
+import software.amazon.awssdk.services.ec2.model.SecurityGroup;
+import software.amazon.awssdk.services.ec2.model.Snapshot;
+import software.amazon.awssdk.services.ec2.model.Subnet;
+import software.amazon.awssdk.services.ec2.model.Tag;
+import software.amazon.awssdk.services.ec2.model.Volume;
+import software.amazon.awssdk.services.ec2.model.Vpc;
+import software.amazon.awssdk.services.ec2.model.VpcEndpoint;
+import software.amazon.awssdk.services.ec2.model.VpcPeeringConnection;
+import software.amazon.awssdk.services.ec2.model.VpnConnection;
+import software.amazon.awssdk.services.ec2.model.VpnGateway;
 
 import javax.inject.Inject;
 
@@ -74,8 +96,31 @@ public class AwsMetadata
     @Inject
     public AwsMetadata()
     {
+        // must match AwsRecordSetProvider.rowGetters
         columns = new ImmutableMap.Builder<String, List<ColumnMetadata>>()
-                .put("instances", fieldsToColumns(Instance.builder().build().sdkFields()))
+                .put("availability_zones", fieldsToColumns(AvailabilityZone.builder().sdkFields()))
+                .put("images", fieldsToColumns(Image.builder().sdkFields()))
+                .put("instance_types", fieldsToColumns(InstanceTypeInfo.builder().sdkFields()))
+                .put("instances", fieldsToColumns(Instance.builder().sdkFields()))
+                .put("key_pairs", fieldsToColumns(KeyPairInfo.builder().sdkFields()))
+                .put("launch_templates", fieldsToColumns(LaunchTemplate.builder().sdkFields()))
+                .put("nat_gateways", fieldsToColumns(NatGateway.builder().sdkFields()))
+                .put("network_interfaces", fieldsToColumns(NetworkInterface.builder().sdkFields()))
+                .put("placement_groups", fieldsToColumns(PlacementGroup.builder().sdkFields()))
+                .put("prefix_lists", fieldsToColumns(PrefixList.builder().sdkFields()))
+                .put("public_ipv4_pools", fieldsToColumns(PublicIpv4Pool.builder().sdkFields()))
+                .put("regions", fieldsToColumns(Region.builder().sdkFields()))
+                .put("route_tables", fieldsToColumns(RouteTable.builder().sdkFields()))
+                .put("snapshots", fieldsToColumns(Snapshot.builder().sdkFields()))
+                .put("security_groups", fieldsToColumns(SecurityGroup.builder().sdkFields()))
+                .put("subnets", fieldsToColumns(Subnet.builder().sdkFields()))
+                .put("tags", fieldsToColumns(Tag.builder().sdkFields()))
+                .put("volumes", fieldsToColumns(Volume.builder().sdkFields()))
+                .put("vpc_endpoints", fieldsToColumns(VpcEndpoint.builder().sdkFields()))
+                .put("vpc_peering_connections", fieldsToColumns(VpcPeeringConnection.builder().sdkFields()))
+                .put("vpcs", fieldsToColumns(Vpc.builder().sdkFields()))
+                .put("vpn_connections", fieldsToColumns(VpnConnection.builder().sdkFields()))
+                .put("vpn_gateways", fieldsToColumns(VpnGateway.builder().sdkFields()))
                 .build();
     }
 
