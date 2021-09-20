@@ -44,7 +44,7 @@ jobs:
           AWS_REGION: eu-central-1
       - name: Build and push Docker image
         run: |
-          sh ./docker-build.sh
+          bash ./docker-build.sh
       - name: Save version number in env
         run: |
           echo "VERSION=$(grep 'project.rel.pl.net.was\\:trino-cloud=' release.properties | cut -d'=' -f2)" >> $GITHUB_ENV
