@@ -37,7 +37,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Prepare release
-        run: ./mvnw -B release:prepare
+        run: sh ./mvnw -B release:prepare
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -57,6 +57,6 @@ jobs:
           files: |
             trino-cloud-*/target/*.zip
       - name: Publish JAR
-        run: ./mvnw -B release:perform -Darguments=-Dgpg.skip
+        run: sh ./mvnw -B release:perform -Darguments=-Dgpg.skip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
