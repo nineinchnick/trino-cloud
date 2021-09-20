@@ -31,14 +31,14 @@ public class TestAwsQueries
     @Test
     public void showTables()
     {
-        assertQuery("SHOW SCHEMAS FROM aws", "VALUES 'default', 'information_schema'");
-        assertQuery("SHOW TABLES FROM aws.default", "VALUES 'ec2_instances'");
+        assertQuery("SHOW SCHEMAS FROM aws", "VALUES 'ec2', 'information_schema'");
+        assertQuery("SHOW TABLES FROM aws.ec2", "VALUES 'instances'");
     }
 
     @Test
     public void selectFromTable()
     {
-        assertQuery("SELECT name FROM ec2_instances WHERE id = 'x'",
-                "VALUES ('my-instance')");
+        assertQuery("SELECT instance_type FROM aws.ec2.instances WHERE instance_id = 'i-03b6c688b1d220d2e'",
+                "VALUES ('t2.micro')");
     }
 }

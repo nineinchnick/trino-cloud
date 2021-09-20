@@ -11,9 +11,7 @@ environmental variables set, same as for
 [CLI access](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html):
 * `AWS_ACCESS_KEY_ID`
 * `AWS_SECRET_ACCESS_KEY`
-* `AWS_DEFAULT_REGION`
-
-> Note that it's not enough to have the CLI configured, that is, the config and credentials files at `~/.aws` are not used.
+* `AWS_REGION`
 
 ```bash
 docker run \
@@ -21,7 +19,7 @@ docker run \
   -v $(pwd)/catalog/aws.properties:/etc/trino/catalog/aws.properties \
   -e AWS_ACCESS_KEY_ID \
   -e AWS_SECRET_ACCESS_KEY \
-  -e AWS_DEFAULT_REGION \
+  -e AWS_REGION \
   -p 8080:8080 \
   --name trino-cloud-aws \
   nineinchnick/trino-cloud:0.1
@@ -37,14 +35,11 @@ To manage multiple accounts at the same time, create separate config files for m
 
 ```
 connector.name=aws
-access_key_id=${ENV:AWS_ACCESS_KEY_ID}
-secret_access_key=${ENV:AWS_SECRET_ACCESS_KEY}
-default_region=${ENV:AWS_DEFAULT_REGION}
+region=${ENV:AWS_REGION}
 ```
 
 After reloading Trino, you should be able to connect to the `aws` catalog and see the following tables in the `default` schema:
 * `ec2_instances`
-* `s3_buckets`
 
 # Development
 

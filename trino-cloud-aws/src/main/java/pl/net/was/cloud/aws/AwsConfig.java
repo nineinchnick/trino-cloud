@@ -15,48 +15,20 @@
 package pl.net.was.cloud.aws;
 
 import io.airlift.configuration.Config;
-import io.airlift.configuration.ConfigSecuritySensitive;
 
 public class AwsConfig
 {
-    private String accessKeyId;
-    private String secretAccessKey;
-    private String defaultRegion;
+    private String region;
 
-    public String getAccessKeyId()
+    public String getRegion()
     {
-        return accessKeyId;
+        return region;
     }
 
-    public String getSecretAccessKey()
+    @Config("region")
+    public AwsConfig setRegion(String region)
     {
-        return secretAccessKey;
-    }
-
-    public String getDefaultRegion()
-    {
-        return defaultRegion;
-    }
-
-    @Config("access_key_id")
-    public AwsConfig setAccessKeyId(String accessKeyId)
-    {
-        this.accessKeyId = accessKeyId;
-        return this;
-    }
-
-    @Config("secret_access_key")
-    @ConfigSecuritySensitive
-    public AwsConfig setSecretAccessKey(String secretAccessKey)
-    {
-        this.secretAccessKey = secretAccessKey;
-        return this;
-    }
-
-    @Config("default_region")
-    public AwsConfig setDefaultRegion(String defaultRegion)
-    {
-        this.defaultRegion = defaultRegion;
+        this.region = region;
         return this;
     }
 }

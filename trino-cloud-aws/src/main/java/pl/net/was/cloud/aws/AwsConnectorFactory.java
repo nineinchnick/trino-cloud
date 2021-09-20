@@ -48,7 +48,7 @@ public class AwsConnectorFactory
     }
 
     @Override
-    public Connector create(String s, Map<String, String> requiredConfig, ConnectorContext context)
+    public Connector create(String catalogName, Map<String, String> requiredConfig, ConnectorContext context)
     {
         requireNonNull(requiredConfig, "requiredConfig is null");
 

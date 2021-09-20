@@ -36,7 +36,7 @@ public class AwsQueryRunner
     {
         Session defaultSession = testSessionBuilder()
                 .setCatalog("aws")
-                .setSchema("default")
+                .setSchema("ec2")
                 .build();
 
         QueryRunner queryRunner = DistributedQueryRunner.builder(defaultSession)
@@ -46,16 +46,12 @@ public class AwsQueryRunner
                 .build();
         queryRunner.installPlugin(new AwsPlugin());
 
-        String accessKeyId = requireNonNullElse(System.getenv("AWS_ACCESS_KEY_ID"), "");
-        String secretAccessKey = requireNonNullElse(System.getenv("AWS_SECRET_ACCESS_KEY"), "");
-        String defaultRegion = requireNonNullElse(System.getenv("AWS_DEFAULT_REGION"), "");
+        String region = requireNonNullElse(System.getenv("AWS_REGION"), "");
         queryRunner.createCatalog(
                 "aws",
                 "aws",
                 ImmutableMap.of(
-                        "access_key_id", accessKeyId,
-                        "secret_access_key", secretAccessKey,
-                        "default_region", defaultRegion));
+                        "region", region));
 
         return queryRunner;
     }

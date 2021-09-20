@@ -14,9 +14,10 @@
 
 package pl.net.was.cloud.aws;
 
-import com.google.common.collect.ImmutableList;
+import com.google.common.base.CaseFormat;
 import com.google.common.collect.ImmutableMap;
 import io.airlift.slice.Slice;
+import io.trino.spi.TrinoException;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.ConnectorInsertTableHandle;
@@ -30,15 +31,25 @@ import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.connector.SchemaTablePrefix;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.statistics.ComputedStatistics;
+import io.trino.spi.type.ArrayType;
+import io.trino.spi.type.Type;
+import software.amazon.awssdk.core.SdkField;
+import software.amazon.awssdk.services.ec2.model.Instance;
 
 import javax.inject.Inject;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+import static io.trino.spi.StandardErrorCode.TABLE_NOT_FOUND;
+import static io.trino.spi.type.BigintType.BIGINT;
+import static io.trino.spi.type.BooleanType.BOOLEAN;
+import static io.trino.spi.type.IntegerType.INTEGER;
+import static io.trino.spi.type.TimestampType.TIMESTAMP_SECONDS;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
@@ -46,19 +57,40 @@ import static java.util.stream.Collectors.toMap;
 public class AwsMetadata
         implements ConnectorMetadata
 {
-    public static final String SCHEMA_NAME = "default";
+    public static final String SCHEMA_NAME = "ec2";
 
-    public static final Map<String, List<ColumnMetadata>> columns = new ImmutableMap.Builder<String, List<ColumnMetadata>>()
-            .put("ec2_instances", ImmutableList.of(
-                    new ColumnMetadata("region", VARCHAR),
-                    new ColumnMetadata("id", VARCHAR),
-                    new ColumnMetadata("type", VARCHAR),
-                    new ColumnMetadata("name", VARCHAR)))
+    // all types must be handled in AwsRecordSetProvider.encode()
+    private static final Map<Class<?>, Type> typeMap = new ImmutableMap.Builder<Class<?>, Type>()
+            .put(String.class, VARCHAR)
+            .put(Integer.class, INTEGER)
+            .put(Long.class, BIGINT)
+            .put(Instant.class, TIMESTAMP_SECONDS)
+            .put(Boolean.class, BOOLEAN)
+            .put(List.class, new ArrayType(VARCHAR))
             .build();
+
+    public final Map<String, List<ColumnMetadata>> columns;
 
     @Inject
     public AwsMetadata()
     {
+        columns = new ImmutableMap.Builder<String, List<ColumnMetadata>>()
+                .put("instances", fieldsToColumns(Instance.builder().build().sdkFields()))
+                .build();
+    }
+
+    private List<ColumnMetadata> fieldsToColumns(List<SdkField<?>> sdkFields)
+    {
+        return sdkFields
+                .stream()
+                .map(f -> {
+                    Class<?> javaType = f.marshallingType().getTargetClass();
+                    Type trinoType = typeMap.getOrDefault(javaType, VARCHAR);
+
+                    String name = CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, f.memberName());
+                    return new ColumnMetadata(name, trinoType);
+                })
+                .collect(toList());
     }
 
     @Override
@@ -91,7 +123,15 @@ public class AwsMetadata
         SchemaTableName schemaTableName = tableHandle.getSchemaTableName();
         return new ConnectorTableMetadata(
                 schemaTableName,
-                columns.get(schemaTableName.getTableName()));
+                getColumns(schemaTableName.getTableName()));
+    }
+
+    private List<ColumnMetadata> getColumns(String tableName)
+    {
+        if (!columns.containsKey(tableName)) {
+            throw new TrinoException(TABLE_NOT_FOUND, "Invalid table name: " + tableName);
+        }
+        return columns.get(tableName);
     }
 
     @Override

@@ -30,6 +30,7 @@ import javax.inject.Inject;
 
 import java.util.List;
 
+import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
 
 public class AwsSplitManager
@@ -40,7 +41,7 @@ public class AwsSplitManager
     @Inject
     public AwsSplitManager(NodeManager nodeManager)
     {
-        this.nodeManager = nodeManager;
+        this.nodeManager = requireNonNull(nodeManager, "nodeManager is null");
     }
 
     @Override
