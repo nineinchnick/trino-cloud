@@ -31,9 +31,11 @@ public class TestAwsQueries
     @Test
     public void showTables()
     {
-        assertQuery("SHOW SCHEMAS FROM aws", "VALUES 'ec2', 'information_schema'");
+        assertQuery("SHOW SCHEMAS FROM aws", "VALUES 'ec2', 'information_schema', 's3'");
         assertQuery("SHOW TABLES FROM aws.ec2",
                 "VALUES 'availability_zones', 'images', 'instance_types', 'instances', 'key_pairs', 'launch_templates', 'nat_gateways', 'network_interfaces', 'placement_groups', 'prefix_lists', 'public_ipv4_pools', 'regions', 'route_tables', 'security_groups', 'snapshots', 'subnets', 'tags', 'volumes', 'vpc_endpoints', 'vpc_peering_connections', 'vpcs', 'vpn_connections', 'vpn_gateways'");
+        assertQuery("SHOW TABLES FROM aws.s3",
+                "VALUES 'buckets', 'deleted_objects', 'objects', 'object_versions'");
     }
 
     @Test
@@ -41,5 +43,7 @@ public class TestAwsQueries
     {
         assertQuery("SELECT instance_type FROM aws.ec2.instances WHERE instance_id = 'i-03b6c688b1d220d2e'",
                 "VALUES ('t2.micro')");
+        assertQuery("SELECT creation_date FROM aws.s3.buckets WHERE name = 'jwas'",
+                "VALUES ('2021-09-03 08:19:33')");
     }
 }

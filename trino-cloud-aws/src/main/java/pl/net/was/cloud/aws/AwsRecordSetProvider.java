@@ -17,6 +17,7 @@ package pl.net.was.cloud.aws;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import io.airlift.slice.Slices;
+import io.trino.spi.TrinoException;
 import io.trino.spi.block.Block;
 import io.trino.spi.block.BlockBuilder;
 import io.trino.spi.connector.ColumnHandle;
@@ -29,9 +30,11 @@ import io.trino.spi.connector.ConnectorTableMetadata;
 import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.connector.InMemoryRecordSet;
 import io.trino.spi.connector.RecordSet;
+import io.trino.spi.connector.SchemaTablePrefix;
 import io.trino.spi.type.MapType;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeOperators;
+import pl.net.was.cloud.aws.filters.FilterApplier;
 import software.amazon.awssdk.core.SdkField;
 import software.amazon.awssdk.core.SdkPojo;
 import software.amazon.awssdk.core.protocol.MarshallingType;
@@ -41,14 +44,21 @@ import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.DescribeImagesRequest;
 import software.amazon.awssdk.services.ec2.model.DescribeInstanceTypesRequest;
 import software.amazon.awssdk.services.ec2.model.DescribeSnapshotsRequest;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 
 import javax.inject.Inject;
 
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Supplier;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
+import static io.trino.spi.StandardErrorCode.INVALID_ROW_FILTER;
 import static io.trino.spi.type.Timestamps.MICROSECONDS_PER_SECOND;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.util.Objects.requireNonNull;
@@ -59,10 +69,11 @@ public class AwsRecordSetProvider
 {
     private final AwsMetadata metadata;
     private final Ec2Client ec2;
+    private final S3Client s3;
 
     private static final MapType mapType = new MapType(VARCHAR, VARCHAR, new TypeOperators());
 
-    private final Map<String, Supplier<Iterable<List<?>>>> rowGetters;
+    private final Map<String, Function<AwsTableHandle, Iterable<List<?>>>> rowGetters;
 
     @Inject
     public AwsRecordSetProvider(AwsMetadata metadata, AwsConfig config)
@@ -72,32 +83,72 @@ public class AwsRecordSetProvider
         this.ec2 = Ec2Client.builder()
                 .region(Region.of(config.getRegion()))
                 .build();
-        // must match AwsMetadata.columns
-        this.rowGetters = new ImmutableMap.Builder<String, Supplier<Iterable<List<?>>>>()
-                .put("ec2.availability_zones", () -> encodeRows(ec2.describeAvailabilityZones().availabilityZones()))
-                .put("ec2.images", () -> encodeRows(ec2.describeImages(DescribeImagesRequest.builder().owners("self").build()).images()))
-                .put("ec2.instance_types", () -> encodeRows(ec2.describeInstanceTypes(DescribeInstanceTypesRequest.builder().build()).instanceTypes()))
-                .put("ec2.instances", this::getInstances)
-                .put("ec2.key_pairs", () -> encodeRows(ec2.describeKeyPairs().keyPairs()))
-                .put("ec2.launch_templates", () -> encodeRows(ec2.describeLaunchTemplates().launchTemplates()))
-                .put("ec2.nat_gateways", () -> encodeRows(ec2.describeNatGateways().natGateways()))
-                .put("ec2.network_interfaces", () -> encodeRows(ec2.describeNetworkInterfaces().networkInterfaces()))
-                .put("ec2.placement_groups", () -> encodeRows(ec2.describePlacementGroups().placementGroups()))
-                .put("ec2.prefix_lists", () -> encodeRows(ec2.describePrefixLists().prefixLists()))
-                .put("ec2.public_ipv4_pools", () -> encodeRows(ec2.describePublicIpv4Pools().publicIpv4Pools()))
-                .put("ec2.regions", () -> encodeRows(ec2.describeRegions().regions()))
-                .put("ec2.route_tables", () -> encodeRows(ec2.describeRouteTables().routeTables()))
-                .put("ec2.snapshots", () -> encodeRows(ec2.describeSnapshots(DescribeSnapshotsRequest.builder().maxResults(100).build()).snapshots()))
-                .put("ec2.security_groups", () -> encodeRows(ec2.describeSecurityGroups().securityGroups()))
-                .put("ec2.subnets", () -> encodeRows(ec2.describeSubnets().subnets()))
-                .put("ec2.tags", () -> encodeRows(ec2.describeTags().tags()))
-                .put("ec2.volumes", () -> encodeRows(ec2.describeVolumes().volumes()))
-                .put("ec2.vpc_endpoints", () -> encodeRows(ec2.describeVpcEndpoints().vpcEndpoints()))
-                .put("ec2.vpc_peering_connections", () -> encodeRows(ec2.describeVpcPeeringConnections().vpcPeeringConnections()))
-                .put("ec2.vpcs", () -> encodeRows(ec2.describeVpcs().vpcs()))
-                .put("ec2.vpn_connections", () -> encodeRows(ec2.describeVpnConnections().vpnConnections()))
-                .put("ec2.vpn_gateways", () -> encodeRows(ec2.describeVpnGateways().vpnGateways()))
+        this.s3 = S3Client.builder()
+                .region(Region.of(config.getRegion()))
                 .build();
+        Map<String, Map<String, AwsColumnHandle>> columns = metadata
+                .streamTableColumns(null, new SchemaTablePrefix())
+                .map(t -> Map.entry(
+                        t.getTable().toString(),
+                        t.getColumns()
+                                .orElse(List.of())
+                                .stream()
+                                .collect(Collectors.toMap(
+                                        ColumnMetadata::getName,
+                                        c -> new AwsColumnHandle(c.getName(), c.getType())))))
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        // must match AwsMetadata.columns
+        this.rowGetters = new ImmutableMap.Builder<String, Function<AwsTableHandle, Iterable<List<?>>>>()
+                .put("ec2.availability_zones", t -> encodeRows(ec2.describeAvailabilityZones().availabilityZones()))
+                .put("ec2.images", t -> encodeRows(ec2.describeImages(DescribeImagesRequest.builder().owners("self").build()).images()))
+                .put("ec2.instance_types", t -> encodeRows(ec2.describeInstanceTypes(DescribeInstanceTypesRequest.builder().build()).instanceTypes()))
+                .put("ec2.instances", this::getInstances)
+                .put("ec2.key_pairs", t -> encodeRows(ec2.describeKeyPairs().keyPairs()))
+                .put("ec2.launch_templates", t -> encodeRows(ec2.describeLaunchTemplates().launchTemplates()))
+                .put("ec2.nat_gateways", t -> encodeRows(ec2.describeNatGateways().natGateways()))
+                .put("ec2.network_interfaces", t -> encodeRows(ec2.describeNetworkInterfaces().networkInterfaces()))
+                .put("ec2.placement_groups", t -> encodeRows(ec2.describePlacementGroups().placementGroups()))
+                .put("ec2.prefix_lists", t -> encodeRows(ec2.describePrefixLists().prefixLists()))
+                .put("ec2.public_ipv4_pools", t -> encodeRows(ec2.describePublicIpv4Pools().publicIpv4Pools()))
+                .put("ec2.regions", t -> encodeRows(ec2.describeRegions().regions()))
+                .put("ec2.route_tables", t -> encodeRows(ec2.describeRouteTables().routeTables()))
+                .put("ec2.snapshots", t -> encodeRows(ec2.describeSnapshots(DescribeSnapshotsRequest.builder().maxResults(100).build()).snapshots()))
+                .put("ec2.security_groups", t -> encodeRows(ec2.describeSecurityGroups().securityGroups()))
+                .put("ec2.subnets", t -> encodeRows(ec2.describeSubnets().subnets()))
+                .put("ec2.tags", t -> encodeRows(ec2.describeTags().tags()))
+                .put("ec2.volumes", t -> encodeRows(ec2.describeVolumes().volumes()))
+                .put("ec2.vpc_endpoints", t -> encodeRows(ec2.describeVpcEndpoints().vpcEndpoints()))
+                .put("ec2.vpc_peering_connections", t -> encodeRows(ec2.describeVpcPeeringConnections().vpcPeeringConnections()))
+                .put("ec2.vpcs", t -> encodeRows(ec2.describeVpcs().vpcs()))
+                .put("ec2.vpn_connections", t -> encodeRows(ec2.describeVpnConnections().vpnConnections()))
+                .put("ec2.vpn_gateways", t -> encodeRows(ec2.describeVpnGateways().vpnGateways()))
+                .put("s3.buckets", t -> encodeRows(s3.listBuckets().buckets()))
+                .put("s3.objects", t -> {
+                    FilterApplier filter = metadata.filterAppliers.get("s3.objects");
+                    String bucketName = (String) filter.getFilter((AwsColumnHandle) metadata.columnHandles.get("s3.objects").get("bucket_name"), t.getConstraint());
+                    requirePredicate(bucketName, "s3.objects.bucket_name");
+                    return encodeRows(s3.listObjectsV2(ListObjectsV2Request.builder().bucket(bucketName).build()).contents(), bucketName);
+                })
+                .put("s3.object_versions", t -> {
+                    FilterApplier filter = metadata.filterAppliers.get("s3.object_versions");
+                    String bucketName = (String) filter.getFilter((AwsColumnHandle) metadata.columnHandles.get("s3.object_versions").get("bucket_name"), t.getConstraint());
+                    requirePredicate(bucketName, "s3.object_versions.bucket_name");
+                    return encodeRows(s3.listObjectVersions(ListObjectVersionsRequest.builder().bucket(bucketName).build()).versions(), bucketName);
+                })
+                .put("s3.deleted_objects", t -> {
+                    FilterApplier filter = metadata.filterAppliers.get("s3.deleted_objects");
+                    String bucketName = (String) filter.getFilter((AwsColumnHandle) metadata.columnHandles.get("s3.deleted_objects").get("bucket_name"), t.getConstraint());
+                    requirePredicate(bucketName, "s3.deleted_objects.bucket_name");
+                    return encodeRows(s3.listObjectVersions(ListObjectVersionsRequest.builder().bucket(bucketName).build()).deleteMarkers(), bucketName);
+                })
+                .build();
+    }
+
+    private void requirePredicate(Object value, String name)
+    {
+        if (value == null) {
+            throw new TrinoException(INVALID_ROW_FILTER, "Missing required constraint for " + name);
+        }
     }
 
     @Override
@@ -146,10 +197,10 @@ public class AwsRecordSetProvider
 
     private Iterable<List<?>> getRows(AwsTableHandle table)
     {
-        return rowGetters.get(table.getSchemaTableName().toString()).get();
+        return rowGetters.get(table.getSchemaTableName().toString()).apply(table);
     }
 
-    private Iterable<List<?>> getInstances()
+    private Iterable<List<?>> getInstances(AwsTableHandle table)
     {
         return ec2.describeInstances()
                 .reservations()
@@ -160,19 +211,21 @@ public class AwsRecordSetProvider
                 .collect(toList());
     }
 
-    private static Iterable<List<?>> encodeRows(List<? extends SdkPojo> objects)
+    private static Iterable<List<?>> encodeRows(List<? extends SdkPojo> objects, Object... prependValues)
     {
         return objects
                 .stream()
-                .map(AwsRecordSetProvider::encodeRow)
+                .map(r -> encodeRow(r, prependValues))
                 .collect(toList());
     }
 
-    private static List<?> encodeRow(SdkPojo o)
+    private static List<?> encodeRow(SdkPojo o, Object... prependValues)
     {
-        return o.sdkFields()
-                .stream()
-                .map(f -> encodeField(f, f.getValueOrDefault(o)))
+        return Stream.concat(
+                        Arrays.stream(prependValues),
+                        o.sdkFields()
+                                .stream()
+                                .map(f -> encodeField(f, f.getValueOrDefault(o))))
                 .collect(toList());
     }
 

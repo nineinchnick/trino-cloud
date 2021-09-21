@@ -260,8 +260,10 @@
                 <artifactId>duplicate-finder-maven-plugin</artifactId>
                 <configuration>
                     <ignoredResourcePatterns>
-                        <ignoredResourcePattern>software/amazon/awssdk/global/handlers/execution.interceptors</ignoredResourcePattern>
-                        <ignoredResourcePattern>about.html</ignoredResourcePattern>
+                        <ignoredResourcePattern>software/amazon/awssdk/global/handlers/execution\.interceptors</ignoredResourcePattern>
+                        <ignoredResourcePattern>about\.html</ignoredResourcePattern>
+                        <ignoredResourcePattern>codegen-resources/.*\.config</ignoredResourcePattern>
+                        <ignoredResourcePattern>codegen-resources/.*\.json</ignoredResourcePattern>
                     </ignoredResourcePatterns>
                 </configuration>
             </plugin>
