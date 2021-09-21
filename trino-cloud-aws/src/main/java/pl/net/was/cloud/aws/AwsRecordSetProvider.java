@@ -44,8 +44,6 @@ import java.util.Map;
 import java.util.function.Supplier;
 
 import static io.trino.spi.type.Timestamps.MICROSECONDS_PER_SECOND;
-import static io.trino.spi.type.Timestamps.MILLISECONDS_PER_SECOND;
-import static io.trino.spi.type.Timestamps.NANOSECONDS_PER_SECOND;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
