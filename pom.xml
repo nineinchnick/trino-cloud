@@ -77,7 +77,7 @@
             <dependency>
                 <groupId>org.checkerframework</groupId>
                 <artifactId>checker-qual</artifactId>
-                <version>3.16.0</version>
+                <version>3.18.0</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -202,7 +202,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-scm-plugin</artifactId>
-                <version>1.11.2</version>
+                <version>1.12.0</version>
                 <configuration>
                     <pushChanges>true</pushChanges>
                 </configuration>
