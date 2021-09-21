@@ -43,6 +43,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 
+import static io.trino.spi.type.Timestamps.MICROSECONDS_PER_SECOND;
+import static io.trino.spi.type.Timestamps.MILLISECONDS_PER_SECOND;
 import static io.trino.spi.type.Timestamps.NANOSECONDS_PER_SECOND;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.util.Objects.requireNonNull;
@@ -181,7 +183,7 @@ public class AwsRecordSetProvider
             if (o == null) {
                 return 0;
             }
-            return ((Instant) o).getEpochSecond() * NANOSECONDS_PER_SECOND;
+            return ((Instant) o).getEpochSecond() * MICROSECONDS_PER_SECOND;
         }
         if (klass == Integer.class || klass == Long.class || klass == Number.class || klass == Boolean.class) {
             return o;
