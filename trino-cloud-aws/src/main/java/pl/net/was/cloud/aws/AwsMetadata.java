@@ -32,8 +32,12 @@ import io.trino.spi.connector.SchemaTablePrefix;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.statistics.ComputedStatistics;
 import io.trino.spi.type.ArrayType;
+import io.trino.spi.type.MapType;
 import io.trino.spi.type.Type;
+import io.trino.spi.type.TypeOperators;
 import software.amazon.awssdk.core.SdkField;
+import software.amazon.awssdk.core.protocol.MarshallingType;
+import software.amazon.awssdk.core.traits.ListTrait;
 import software.amazon.awssdk.services.ec2.model.AvailabilityZone;
 import software.amazon.awssdk.services.ec2.model.Image;
 import software.amazon.awssdk.services.ec2.model.Instance;
@@ -60,7 +64,6 @@ import software.amazon.awssdk.services.ec2.model.VpnGateway;
 
 import javax.inject.Inject;
 
-import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -70,7 +73,10 @@ import java.util.stream.Collectors;
 import static io.trino.spi.StandardErrorCode.TABLE_NOT_FOUND;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
+import static io.trino.spi.type.DoubleType.DOUBLE;
 import static io.trino.spi.type.IntegerType.INTEGER;
+import static io.trino.spi.type.RealType.REAL;
+import static io.trino.spi.type.SmallintType.SMALLINT;
 import static io.trino.spi.type.TimestampType.TIMESTAMP_SECONDS;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.util.stream.Collectors.toList;
@@ -82,13 +88,18 @@ public class AwsMetadata
     public static final String SCHEMA_NAME = "ec2";
 
     // all types must be handled in AwsRecordSetProvider.encode()
-    private static final Map<Class<?>, Type> typeMap = new ImmutableMap.Builder<Class<?>, Type>()
-            .put(String.class, VARCHAR)
-            .put(Integer.class, INTEGER)
-            .put(Long.class, BIGINT)
-            .put(Instant.class, TIMESTAMP_SECONDS)
-            .put(Boolean.class, BOOLEAN)
-            .put(List.class, new ArrayType(VARCHAR))
+    // missing: Void, BigDecimal, SdkBytes, Document
+    // SdkPojo, List<?> and Map<String, ?> handled separately
+    private static final Map<MarshallingType<?>, Type> typeMap = new ImmutableMap.Builder<MarshallingType<?>, Type>()
+            .put(MarshallingType.SHORT, SMALLINT)
+            .put(MarshallingType.INTEGER, INTEGER)
+            .put(MarshallingType.LONG, BIGINT)
+            .put(MarshallingType.FLOAT, REAL)
+            .put(MarshallingType.DOUBLE, DOUBLE)
+            .put(MarshallingType.BOOLEAN, BOOLEAN)
+            .put(MarshallingType.STRING, VARCHAR)
+            .put(MarshallingType.INSTANT, TIMESTAMP_SECONDS)
+            .put(MarshallingType.LIST, new ArrayType(VARCHAR))
             .build();
 
     public final Map<String, List<ColumnMetadata>> columns;
@@ -129,8 +140,17 @@ public class AwsMetadata
         return sdkFields
                 .stream()
                 .map(f -> {
-                    Class<?> javaType = f.marshallingType().getTargetClass();
-                    Type trinoType = typeMap.getOrDefault(javaType, VARCHAR);
+                    MarshallingType<?> sdkType = f.marshallingType();
+                    Type trinoType = typeMap.getOrDefault(sdkType, VARCHAR);
+                    if (sdkType == MarshallingType.SDK_POJO || sdkType == MarshallingType.MAP) {
+                        trinoType = new MapType(VARCHAR, VARCHAR, new TypeOperators());
+                    }
+
+                    if (sdkType == MarshallingType.LIST &&
+                            f.containsTrait(ListTrait.class) &&
+                            f.getTrait(ListTrait.class).memberFieldInfo().marshallingType() == MarshallingType.SDK_POJO) {
+                        trinoType = new ArrayType(new MapType(VARCHAR, VARCHAR, new TypeOperators()));
+                    }
 
                     String name = CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, f.memberName());
                     return new ColumnMetadata(name, trinoType);

@@ -17,6 +17,7 @@ package pl.net.was.cloud.aws;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import io.airlift.slice.Slices;
+import io.trino.spi.block.Block;
 import io.trino.spi.block.BlockBuilder;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
@@ -28,8 +29,13 @@ import io.trino.spi.connector.ConnectorTableMetadata;
 import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.connector.InMemoryRecordSet;
 import io.trino.spi.connector.RecordSet;
+import io.trino.spi.type.MapType;
 import io.trino.spi.type.Type;
+import io.trino.spi.type.TypeOperators;
+import software.amazon.awssdk.core.SdkField;
 import software.amazon.awssdk.core.SdkPojo;
+import software.amazon.awssdk.core.protocol.MarshallingType;
+import software.amazon.awssdk.core.traits.ListTrait;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.DescribeImagesRequest;
@@ -53,6 +59,8 @@ public class AwsRecordSetProvider
 {
     private final AwsMetadata metadata;
     private final Ec2Client ec2;
+
+    private static final MapType mapType = new MapType(VARCHAR, VARCHAR, new TypeOperators());
 
     private final Map<String, Supplier<Iterable<List<?>>>> rowGetters;
 
@@ -164,34 +172,55 @@ public class AwsRecordSetProvider
     {
         return o.sdkFields()
                 .stream()
-                .map(f -> encodeField(f.marshallingType().getTargetClass(), f.getValueOrDefault(o)))
+                .map(f -> encodeField(f, f.getValueOrDefault(o)))
                 .collect(toList());
     }
 
     // must support all types from AwsMetadata.typeMap
-    private static Object encodeField(Class<?> klass, Object o)
+    private static Object encodeField(SdkField<?> f, Object o)
     {
-        if (klass == String.class) {
+        MarshallingType<?> sdkType = f.marshallingType();
+        if (sdkType == MarshallingType.STRING) {
             if (o == null) {
                 return "";
             }
             return Slices.utf8Slice((String) o);
         }
-        if (klass == Instant.class) {
+        if (sdkType == MarshallingType.INSTANT) {
             if (o == null) {
                 return 0;
             }
             return ((Instant) o).getEpochSecond() * MICROSECONDS_PER_SECOND;
         }
-        if (klass == Integer.class || klass == Long.class || klass == Number.class || klass == Boolean.class) {
+        if (sdkType == MarshallingType.SHORT || sdkType == MarshallingType.INTEGER || sdkType == MarshallingType.LONG
+                || sdkType == MarshallingType.FLOAT || sdkType == MarshallingType.DOUBLE
+                || sdkType == MarshallingType.BOOLEAN) {
             return o;
         }
-        if (klass == List.class) {
+        if (sdkType == MarshallingType.SDK_POJO) {
+            return encodeSdkPojo((SdkPojo) o);
+        }
+        if (sdkType == MarshallingType.MAP) {
+            return encodeMap((Map<String, ?>) o);
+        }
+        if (sdkType == MarshallingType.LIST) {
             List<?> list = (List<?>) o;
-            BlockBuilder values = VARCHAR.createBlockBuilder(null, o != null ? list.size() : 0);
-            if (list != null) {
-                for (Object value : list) {
-                    VARCHAR.writeString(values, value.toString());
+            BlockBuilder values;
+            if (f.containsTrait(ListTrait.class) &&
+                    f.getTrait(ListTrait.class).memberFieldInfo().marshallingType() == MarshallingType.SDK_POJO) {
+                values = mapType.createBlockBuilder(null, o != null ? list.size() : 0);
+                if (list != null) {
+                    for (Object value : list) {
+                        mapType.writeObject(values, encodeSdkPojo((SdkPojo) value));
+                    }
+                }
+            }
+            else {
+                values = VARCHAR.createBlockBuilder(null, o != null ? list.size() : 0);
+                if (list != null) {
+                    for (Object value : list) {
+                        VARCHAR.writeString(values, value.toString());
+                    }
                 }
             }
             return values.build();
@@ -200,5 +229,39 @@ public class AwsRecordSetProvider
             return "";
         }
         return o.toString();
+    }
+
+    private static Block encodeSdkPojo(SdkPojo sdkPojo)
+    {
+        BlockBuilder values = mapType.createBlockBuilder(null, sdkPojo != null ? sdkPojo.sdkFields().size() : 0);
+        if (sdkPojo == null) {
+            values.appendNull();
+            return values.build().getObject(0, Block.class);
+        }
+        BlockBuilder builder = values.beginBlockEntry();
+        for (SdkField<?> field : sdkPojo.sdkFields()) {
+            VARCHAR.writeString(builder, field.memberName());
+            Object value = field.getValueOrDefault(sdkPojo);
+            VARCHAR.writeString(builder, value != null ? value.toString() : "");
+        }
+        values.closeEntry();
+        return values.build().getObject(0, Block.class);
+    }
+
+    private static Block encodeMap(Map<String, ?> map)
+    {
+        BlockBuilder values = mapType.createBlockBuilder(null, map != null ? map.size() : 0);
+        if (map == null) {
+            values.appendNull();
+            return values.build().getObject(0, Block.class);
+        }
+        BlockBuilder builder = values.beginBlockEntry();
+        for (Map.Entry<String, ?> entry : map.entrySet()) {
+            VARCHAR.writeString(builder, entry.getKey());
+            Object value = entry.getValue();
+            VARCHAR.writeString(builder, value != null ? value.toString() : "");
+        }
+        values.closeEntry();
+        return values.build().getObject(0, Block.class);
     }
 }
