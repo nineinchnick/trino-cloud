@@ -22,11 +22,9 @@ import io.trino.spi.connector.ConnectorOutputTableHandle;
 import io.trino.spi.type.Type;
 
 import java.util.List;
-import java.util.Objects;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
-import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 
 public final class AwsOutputTableHandle

@@ -18,7 +18,6 @@ import com.google.inject.Binder;
 import com.google.inject.Module;
 import com.google.inject.Scopes;
 import io.trino.spi.NodeManager;
-import io.trino.spi.connector.ConnectorPageSinkProvider;
 import io.trino.spi.type.TypeManager;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ec2.Ec2Client;
@@ -27,7 +26,6 @@ import software.amazon.awssdk.services.s3.S3Client;
 import javax.inject.Inject;
 import javax.inject.Provider;
 
-import static com.google.inject.multibindings.OptionalBinder.newOptionalBinder;
 import static io.airlift.configuration.ConfigBinder.configBinder;
 import static java.util.Objects.requireNonNull;
 
