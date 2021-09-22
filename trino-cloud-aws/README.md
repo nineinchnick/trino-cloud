@@ -27,6 +27,20 @@ Not all resources are mapped yet, here's a list of the available schemas and tab
 * `ec2.vpcs`
 * `ec2.vpn_connections`
 * `ec2.vpn_gateways`
+* `s3.buckets`
+* `s3.deleted_objects`
+* `s3.objects`
+* `s3.object_versions`
+
+The following tables support inserting into:
+* `ec2.images`
+* `ec2.instances`
+* `s3.buckets`
+
+For example:
+```sql
+INSERT INTO instances (image_id, instance_type, key_name) VALUES ('ami-05f7491af5eef733a', 't2.micro', 'default')
+```
 
 # Configuration
 

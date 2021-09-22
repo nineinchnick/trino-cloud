@@ -39,7 +39,6 @@ import software.amazon.awssdk.core.SdkField;
 import software.amazon.awssdk.core.SdkPojo;
 import software.amazon.awssdk.core.protocol.MarshallingType;
 import software.amazon.awssdk.core.traits.ListTrait;
-import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.DescribeImagesRequest;
 import software.amazon.awssdk.services.ec2.model.DescribeInstanceTypesRequest;
@@ -76,16 +75,11 @@ public class AwsRecordSetProvider
     private final Map<String, Function<AwsTableHandle, Iterable<List<?>>>> rowGetters;
 
     @Inject
-    public AwsRecordSetProvider(AwsMetadata metadata, AwsConfig config)
+    public AwsRecordSetProvider(AwsMetadata metadata, Ec2Client ec2, S3Client s3)
     {
         this.metadata = requireNonNull(metadata, "metadata is null");
-        requireNonNull(config, "config is null");
-        this.ec2 = Ec2Client.builder()
-                .region(Region.of(config.getRegion()))
-                .build();
-        this.s3 = S3Client.builder()
-                .region(Region.of(config.getRegion()))
-                .build();
+        this.ec2 = requireNonNull(ec2, "ec2 is null");
+        this.s3 = requireNonNull(s3, "s3 is null");
         Map<String, Map<String, AwsColumnHandle>> columns = metadata
                 .streamTableColumns(null, new SchemaTablePrefix())
                 .map(t -> Map.entry(

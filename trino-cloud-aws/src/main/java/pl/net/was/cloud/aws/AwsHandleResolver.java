@@ -17,6 +17,7 @@ package pl.net.was.cloud.aws;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ConnectorHandleResolver;
 import io.trino.spi.connector.ConnectorInsertTableHandle;
+import io.trino.spi.connector.ConnectorOutputTableHandle;
 import io.trino.spi.connector.ConnectorSplit;
 import io.trino.spi.connector.ConnectorTableHandle;
 import io.trino.spi.connector.ConnectorTransactionHandle;
@@ -40,14 +41,20 @@ public class AwsHandleResolver
     }
 
     @Override
-    public Class<? extends ConnectorTransactionHandle> getTransactionHandleClass()
+    public Class<? extends ConnectorOutputTableHandle> getOutputTableHandleClass()
     {
-        return AwsTransactionHandle.class;
+        return AwsOutputTableHandle.class;
     }
 
     @Override
     public Class<? extends ConnectorInsertTableHandle> getInsertTableHandleClass()
     {
-        return AwsInsertTableHandle.class;
+        return AwsOutputTableHandle.class;
+    }
+
+    @Override
+    public Class<? extends ConnectorTransactionHandle> getTransactionHandleClass()
+    {
+        return AwsTransactionHandle.class;
     }
 }

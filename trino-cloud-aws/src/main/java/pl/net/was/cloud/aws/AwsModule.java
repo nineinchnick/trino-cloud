@@ -18,8 +18,16 @@ import com.google.inject.Binder;
 import com.google.inject.Module;
 import com.google.inject.Scopes;
 import io.trino.spi.NodeManager;
+import io.trino.spi.connector.ConnectorPageSinkProvider;
 import io.trino.spi.type.TypeManager;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.ec2.Ec2Client;
+import software.amazon.awssdk.services.s3.S3Client;
 
+import javax.inject.Inject;
+import javax.inject.Provider;
+
+import static com.google.inject.multibindings.OptionalBinder.newOptionalBinder;
 import static io.airlift.configuration.ConfigBinder.configBinder;
 import static java.util.Objects.requireNonNull;
 
@@ -45,6 +53,52 @@ public class AwsModule
         binder.bind(AwsMetadata.class).in(Scopes.SINGLETON);
         binder.bind(AwsSplitManager.class).in(Scopes.SINGLETON);
         binder.bind(AwsRecordSetProvider.class).in(Scopes.SINGLETON);
+        binder.bind(AwsPageSinkProvider.class).in(Scopes.SINGLETON);
         configBinder(binder).bindConfig(AwsConfig.class);
+
+        binder.bind(Ec2Client.class).toProvider(Ec2ClientProvider.class);
+        binder.bind(S3Client.class).toProvider(S3ClientProvider.class);
+    }
+
+    private static class Ec2ClientProvider
+            implements Provider<Ec2Client>
+    {
+        private final String region;
+
+        @Inject
+        public Ec2ClientProvider(AwsConfig config)
+        {
+            requireNonNull(config, "config is null");
+            this.region = config.getRegion();
+        }
+
+        @Override
+        public Ec2Client get()
+        {
+            return Ec2Client.builder()
+                    .region(Region.of(region))
+                    .build();
+        }
+    }
+
+    private static class S3ClientProvider
+            implements Provider<S3Client>
+    {
+        private final String region;
+
+        @Inject
+        public S3ClientProvider(AwsConfig config)
+        {
+            requireNonNull(config, "config is null");
+            this.region = config.getRegion();
+        }
+
+        @Override
+        public S3Client get()
+        {
+            return S3Client.builder()
+                    .region(Region.of(region))
+                    .build();
+        }
     }
 }

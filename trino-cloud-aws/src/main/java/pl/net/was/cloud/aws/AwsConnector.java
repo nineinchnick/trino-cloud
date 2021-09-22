@@ -17,6 +17,7 @@ package pl.net.was.cloud.aws;
 import io.airlift.bootstrap.LifeCycleManager;
 import io.trino.spi.connector.Connector;
 import io.trino.spi.connector.ConnectorMetadata;
+import io.trino.spi.connector.ConnectorPageSinkProvider;
 import io.trino.spi.connector.ConnectorRecordSetProvider;
 import io.trino.spi.connector.ConnectorSplitManager;
 import io.trino.spi.connector.ConnectorTransactionHandle;
@@ -34,18 +35,21 @@ public class AwsConnector
     private final AwsMetadata metadata;
     private final AwsSplitManager splitManager;
     private final AwsRecordSetProvider recordSetProvider;
+    private final AwsPageSinkProvider pageSinkProvider;
 
     @Inject
     public AwsConnector(
             LifeCycleManager lifeCycleManager,
             AwsMetadata metadata,
             AwsSplitManager splitManager,
-            AwsRecordSetProvider recordSetProvider)
+            AwsRecordSetProvider recordSetProvider,
+            AwsPageSinkProvider pageSinkProvider)
     {
         this.lifeCycleManager = requireNonNull(lifeCycleManager, "lifeCycleManager is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.splitManager = requireNonNull(splitManager, "splitManager is null");
         this.recordSetProvider = requireNonNull(recordSetProvider, "recordSetProvider is null");
+        this.pageSinkProvider = requireNonNull(pageSinkProvider, "pageSinkProvider is null");
     }
 
     @Override
@@ -70,6 +74,12 @@ public class AwsConnector
     public ConnectorRecordSetProvider getRecordSetProvider()
     {
         return recordSetProvider;
+    }
+
+    @Override
+    public ConnectorPageSinkProvider getPageSinkProvider()
+    {
+        return pageSinkProvider;
     }
 
     @Override

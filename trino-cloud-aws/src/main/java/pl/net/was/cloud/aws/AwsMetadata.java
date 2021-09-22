@@ -15,6 +15,7 @@
 package pl.net.was.cloud.aws;
 
 import com.google.common.base.CaseFormat;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import io.airlift.slice.Slice;
 import io.trino.spi.TrinoException;
@@ -81,6 +82,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.trino.spi.StandardErrorCode.TABLE_NOT_FOUND;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
@@ -295,10 +297,19 @@ public class AwsMetadata
     }
 
     @Override
-    public ConnectorInsertTableHandle beginInsert(ConnectorSession session, ConnectorTableHandle connectorTableHandle)
+    public ConnectorInsertTableHandle beginInsert(ConnectorSession session, ConnectorTableHandle tableHandle, List<ColumnHandle> columns)
     {
-        AwsTableHandle tableHandle = Types.checkType(connectorTableHandle, AwsTableHandle.class, "tableHandle");
-        return new AwsInsertTableHandle(tableHandle);
+        AwsTableHandle awsTableHandle = Types.checkType(tableHandle, AwsTableHandle.class, "tableHandle");
+        List<AwsColumnHandle> columnHandles = columns.stream()
+                .map(AwsColumnHandle.class::cast)
+                .collect(toImmutableList());
+        ImmutableList.Builder<String> columnNames = ImmutableList.builder();
+        ImmutableList.Builder<Type> columnTypes = ImmutableList.builder();
+        for (AwsColumnHandle column : columnHandles) {
+            columnNames.add(column.getName());
+            columnTypes.add(column.getType());
+        }
+        return new AwsOutputTableHandle(awsTableHandle, columnNames.build(), columnTypes.build());
     }
 
     @Override
