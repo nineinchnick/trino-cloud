@@ -34,13 +34,26 @@ Not all resources are mapped yet, here's a list of the available schemas and tab
 
 The following tables support inserting into:
 * `ec2.images`
-* `ec2.instances`
+* `ec2.instances`, with limited `UPDATE` and `DELETE` support
 * `s3.buckets`
 
 For example:
 ```sql
 INSERT INTO instances (image_id, instance_type, key_name) VALUES ('ami-05f7491af5eef733a', 't2.micro', 'default')
 ```
+
+To stop an instance, update the instance row:
+```sql
+UPDATE instances SET state = MAP(ARRAY['Name'], ARRAY['stopped']) WHERE instance_id = 'i-04a7cf7ca232cd251';
+```
+
+To terminate it, delete the row:
+```sql
+DELETE FROM instances WHERE instance_id = 'i-04a7cf7ca232cd251';
+```
+
+> Note that the row won't be immediately deleted if the instance is running,
+> as it'll be in the `shutting-down` state for a while.
 
 # Configuration
 
@@ -85,8 +98,22 @@ docker run -it --rm --link trino trinodb/trino:361 trino --server trino:8080 --c
 
 # Adding new tables
 
-To add a new table:
+To add a new table that can be read from:
 
 1. Define columns for the new table in the constructor of [AwsMetadata](src/main/java/pl/net/was/cloud/aws/AwsMetadata.java).
-1. Define a function to generate rows in [AwsRecordSetProvider.rowGetters](src/main/java/pl/net/was/cloud/aws/AwsRecordSetProvider.java).
-1. Profit!
+2. Define a function to generate rows in [AwsRecordSetProvider.rowGetters](src/main/java/pl/net/was/cloud/aws/AwsRecordSetProvider.java).
+3. Profit!
+
+## INSERT support
+
+To add INSERT support for any table, append new entries to the `fields` and `writers` properties in `AwsPageSink` class.
+By default, all table columns are optimistically mapped to an AWS SDK request fields.
+Some columns might not have matching fields in a request.
+
+## UPDATE and DELETE support
+
+1. Add a hidden `row_id` column in `AwsMetadata.columns`. The column should be populated with a unique identifier value in `AwsRecordSetProvider.rowGetters`.
+1. Define the primary key in `AwsMetadata.primaryKeys`.
+1. Add an entry to the `updaters` and/or `deleters` maps in `AwsPageSourceProvider` maps.
+
+Updates might perform multiple different API calls, depending on which columns are being set.

@@ -18,7 +18,7 @@ import io.airlift.bootstrap.LifeCycleManager;
 import io.trino.spi.connector.Connector;
 import io.trino.spi.connector.ConnectorMetadata;
 import io.trino.spi.connector.ConnectorPageSinkProvider;
-import io.trino.spi.connector.ConnectorRecordSetProvider;
+import io.trino.spi.connector.ConnectorPageSourceProvider;
 import io.trino.spi.connector.ConnectorSplitManager;
 import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.transaction.IsolationLevel;
@@ -34,7 +34,7 @@ public class AwsConnector
     private final LifeCycleManager lifeCycleManager;
     private final AwsMetadata metadata;
     private final AwsSplitManager splitManager;
-    private final AwsRecordSetProvider recordSetProvider;
+    private final AwsPageSourceProvider pageSourceProvider;
     private final AwsPageSinkProvider pageSinkProvider;
 
     @Inject
@@ -42,13 +42,13 @@ public class AwsConnector
             LifeCycleManager lifeCycleManager,
             AwsMetadata metadata,
             AwsSplitManager splitManager,
-            AwsRecordSetProvider recordSetProvider,
+            AwsPageSourceProvider pageSourceProvider,
             AwsPageSinkProvider pageSinkProvider)
     {
         this.lifeCycleManager = requireNonNull(lifeCycleManager, "lifeCycleManager is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.splitManager = requireNonNull(splitManager, "splitManager is null");
-        this.recordSetProvider = requireNonNull(recordSetProvider, "recordSetProvider is null");
+        this.pageSourceProvider = requireNonNull(pageSourceProvider, "pageSourceProvider is null");
         this.pageSinkProvider = requireNonNull(pageSinkProvider, "pageSinkProvider is null");
     }
 
@@ -71,9 +71,9 @@ public class AwsConnector
     }
 
     @Override
-    public ConnectorRecordSetProvider getRecordSetProvider()
+    public ConnectorPageSourceProvider getPageSourceProvider()
     {
-        return recordSetProvider;
+        return pageSourceProvider;
     }
 
     @Override

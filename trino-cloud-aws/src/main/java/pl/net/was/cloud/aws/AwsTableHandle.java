@@ -29,11 +29,17 @@ public class AwsTableHandle
         implements ConnectorTableHandle, Cloneable
 {
     private final SchemaTableName schemaTableName;
-    private TupleDomain<ColumnHandle> constraint;
+    private TupleDomain<ColumnHandle> constraint = TupleDomain.none();
     private int offset;
-    private int limit;
-    private int pageIncrement;
+    private int limit = Integer.MAX_VALUE;
+    private int pageIncrement = 1;
     private List<SortItem> sortOrder;
+    private Optional<List<ColumnHandle>> updatedColumns = Optional.empty();
+
+    public AwsTableHandle(SchemaTableName schemaTableName)
+    {
+        this.schemaTableName = schemaTableName;
+    }
 
     @JsonCreator
     public AwsTableHandle(
@@ -42,7 +48,8 @@ public class AwsTableHandle
             @JsonProperty("offset") int offset,
             @JsonProperty("limit") int limit,
             @JsonProperty("pageIncrement") int pageIncrement,
-            @JsonProperty("sortOrder") List<SortItem> sortOrder)
+            @JsonProperty("sortOrder") List<SortItem> sortOrder,
+            @JsonProperty("updatedColumns") List<ColumnHandle> updatedColumns)
     {
         this.schemaTableName = schemaTableName;
         this.constraint = constraint;
@@ -50,6 +57,7 @@ public class AwsTableHandle
         this.limit = limit;
         this.pageIncrement = pageIncrement;
         this.sortOrder = sortOrder;
+        this.updatedColumns = Optional.ofNullable(updatedColumns);
     }
 
     public String toString()
@@ -93,6 +101,12 @@ public class AwsTableHandle
         return sortOrder == null ? Optional.empty() : Optional.of(sortOrder);
     }
 
+    @JsonProperty("updatedColumns")
+    public Optional<List<ColumnHandle>> getUpdatedColumns()
+    {
+        return updatedColumns;
+    }
+
     @Override
     public AwsTableHandle clone()
     {
@@ -130,6 +144,13 @@ public class AwsTableHandle
     {
         AwsTableHandle tableHandle = this.clone();
         tableHandle.sortOrder = sortOrder;
+        return tableHandle;
+    }
+
+    public AwsTableHandle cloneWithUpdatedColumns(List<ColumnHandle> updatedColumns)
+    {
+        AwsTableHandle tableHandle = this.clone();
+        tableHandle.updatedColumns = Optional.ofNullable(updatedColumns);
         return tableHandle;
     }
 }
