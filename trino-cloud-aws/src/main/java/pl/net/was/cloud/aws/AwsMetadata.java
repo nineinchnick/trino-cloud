@@ -33,7 +33,6 @@ import io.trino.spi.connector.ConstraintApplicationResult;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.connector.SchemaTablePrefix;
 import io.trino.spi.connector.TableColumnsMetadata;
-import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.statistics.ComputedStatistics;
 import io.trino.spi.type.ArrayType;
 import io.trino.spi.type.MapType;
@@ -41,6 +40,7 @@ import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeOperators;
 import pl.net.was.cloud.aws.filters.BucketFilter;
 import pl.net.was.cloud.aws.filters.FilterApplier;
+import pl.net.was.cloud.aws.filters.InstanceFilter;
 import software.amazon.awssdk.core.SdkField;
 import software.amazon.awssdk.core.protocol.MarshallingType;
 import software.amazon.awssdk.core.traits.ListTrait;
@@ -83,6 +83,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.StandardErrorCode.TABLE_NOT_FOUND;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
@@ -92,6 +93,7 @@ import static io.trino.spi.type.RealType.REAL;
 import static io.trino.spi.type.SmallintType.SMALLINT;
 import static io.trino.spi.type.TimestampType.TIMESTAMP_SECONDS;
 import static io.trino.spi.type.VarcharType.VARCHAR;
+import static java.lang.String.format;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
 
@@ -113,10 +115,14 @@ public class AwsMetadata
             .put(MarshallingType.LIST, new ArrayType(VARCHAR))
             .build();
 
+    public static final String ROW_ID = "row_id";
+
     public final Map<SchemaTableName, List<ColumnMetadata>> columns;
     public final Map<String, Map<String, ColumnHandle>> columnHandles;
+    public final Map<SchemaTableName, AwsColumnHandle> primaryKeys;
 
     public final Map<String, ? extends FilterApplier> filterAppliers = new ImmutableMap.Builder<String, FilterApplier>()
+            .put("ec2.instances", new InstanceFilter())
             .put("s3.objects", new BucketFilter())
             .put("s3.object_versions", new BucketFilter())
             .put("s3.deleted_objects", new BucketFilter())
@@ -130,7 +136,9 @@ public class AwsMetadata
                 .put(new SchemaTableName("ec2", "availability_zones"), fieldsToColumns(AvailabilityZone.builder().sdkFields()))
                 .put(new SchemaTableName("ec2", "images"), fieldsToColumns(Image.builder().sdkFields()))
                 .put(new SchemaTableName("ec2", "instance_types"), fieldsToColumns(InstanceTypeInfo.builder().sdkFields()))
-                .put(new SchemaTableName("ec2", "instances"), fieldsToColumns(Instance.builder().sdkFields()))
+                .put(new SchemaTableName("ec2", "instances"), fieldsToColumns(
+                        List.of(ColumnMetadata.builder().setName(ROW_ID).setType(VARCHAR).setHidden(true).build()),
+                        Instance.builder().sdkFields()))
                 .put(new SchemaTableName("ec2", "key_pairs"), fieldsToColumns(KeyPairInfo.builder().sdkFields()))
                 .put(new SchemaTableName("ec2", "launch_templates"), fieldsToColumns(LaunchTemplate.builder().sdkFields()))
                 .put(new SchemaTableName("ec2", "nat_gateways"), fieldsToColumns(NatGateway.builder().sdkFields()))
@@ -163,6 +171,9 @@ public class AwsMetadata
                         List.of(
                                 new ColumnMetadata("bucket_name", VARCHAR)),
                         DeleteMarkerEntry.builder().sdkFields()))
+                .build();
+        primaryKeys = new ImmutableMap.Builder<SchemaTableName, AwsColumnHandle>()
+                .put(new SchemaTableName("ec2", "instances"), new AwsColumnHandle("instance_id", VARCHAR))
                 .build();
 
         columnHandles = columns
@@ -215,18 +226,14 @@ public class AwsMetadata
     }
 
     @Override
-    public ConnectorTableHandle getTableHandle(ConnectorSession connectorSession, SchemaTableName schemaTableName)
+    public ConnectorTableHandle getTableHandle(
+            ConnectorSession connectorSession,
+            SchemaTableName schemaTableName)
     {
         if (!listSchemaNames(connectorSession).contains(schemaTableName.getSchemaName())) {
             return null;
         }
-        return new AwsTableHandle(
-                schemaTableName,
-                TupleDomain.none(),
-                0,
-                Integer.MAX_VALUE,
-                1,
-                null);
+        return new AwsTableHandle(schemaTableName);
     }
 
     @Override
@@ -247,6 +254,11 @@ public class AwsMetadata
             throw new TrinoException(TABLE_NOT_FOUND, "Invalid table name: " + tableName);
         }
         return columns.get(tableName);
+    }
+
+    public AwsColumnHandle getRowIdHandle(SchemaTableName tableName)
+    {
+        return (AwsColumnHandle) columnHandles.get(tableName.toString()).get(ROW_ID);
     }
 
     @Override
@@ -297,7 +309,10 @@ public class AwsMetadata
     }
 
     @Override
-    public ConnectorInsertTableHandle beginInsert(ConnectorSession session, ConnectorTableHandle tableHandle, List<ColumnHandle> columns)
+    public ConnectorInsertTableHandle beginInsert(
+            ConnectorSession session,
+            ConnectorTableHandle tableHandle,
+            List<ColumnHandle> columns)
     {
         AwsTableHandle awsTableHandle = Types.checkType(tableHandle, AwsTableHandle.class, "tableHandle");
         List<AwsColumnHandle> columnHandles = columns.stream()
@@ -320,6 +335,65 @@ public class AwsMetadata
             Collection<ComputedStatistics> computedStatistics)
     {
         return Optional.empty();
+    }
+
+    @Override
+    public ColumnHandle getDeleteRowIdColumnHandle(
+            ConnectorSession session,
+            ConnectorTableHandle tableHandle)
+    {
+        return getRowId((AwsTableHandle) tableHandle);
+    }
+
+    @Override
+    public ConnectorTableHandle beginDelete(
+            ConnectorSession session,
+            ConnectorTableHandle tableHandle)
+    {
+        return Types.checkType(tableHandle, AwsTableHandle.class, "tableHandle").cloneWithUpdatedColumns(List.of());
+    }
+
+    @Override
+    public void finishDelete(
+            ConnectorSession session,
+            ConnectorTableHandle tableHandle,
+            Collection<Slice> fragments)
+    {
+    }
+
+    @Override
+    public ColumnHandle getUpdateRowIdColumnHandle(
+            ConnectorSession session,
+            ConnectorTableHandle tableHandle,
+            List<ColumnHandle> updatedColumns)
+    {
+        return getRowId((AwsTableHandle) tableHandle);
+    }
+
+    @Override
+    public ConnectorTableHandle beginUpdate(
+            ConnectorSession session,
+            ConnectorTableHandle tableHandle,
+            List<ColumnHandle> updatedColumns)
+    {
+        return Types.checkType(tableHandle, AwsTableHandle.class, "tableHandle").cloneWithUpdatedColumns(updatedColumns);
+    }
+
+    @Override
+    public void finishUpdate(
+            ConnectorSession session,
+            ConnectorTableHandle tableHandle,
+            Collection<Slice> fragments)
+    {
+    }
+
+    private ColumnHandle getRowId(AwsTableHandle tableHandle)
+    {
+        ColumnHandle rowId = getRowIdHandle(tableHandle.getSchemaTableName());
+        if (rowId == null) {
+            throw new TrinoException(NOT_SUPPORTED, format("Deletes on table %s are not supported", tableHandle.getSchemaTableName().toString()));
+        }
+        return rowId;
     }
 
     @Override

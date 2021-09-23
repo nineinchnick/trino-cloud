@@ -42,7 +42,9 @@ import software.amazon.awssdk.core.traits.ListTrait;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.DescribeImagesRequest;
 import software.amazon.awssdk.services.ec2.model.DescribeInstanceTypesRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeInstancesRequest;
 import software.amazon.awssdk.services.ec2.model.DescribeSnapshotsRequest;
+import software.amazon.awssdk.services.ec2.model.Instance;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
@@ -50,7 +52,6 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import javax.inject.Inject;
 
 import java.time.Instant;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -121,19 +122,25 @@ public class AwsRecordSetProvider
                     FilterApplier filter = metadata.filterAppliers.get("s3.objects");
                     String bucketName = (String) filter.getFilter((AwsColumnHandle) metadata.columnHandles.get("s3.objects").get("bucket_name"), t.getConstraint());
                     requirePredicate(bucketName, "s3.objects.bucket_name");
-                    return encodeRows(s3.listObjectsV2(ListObjectsV2Request.builder().bucket(bucketName).build()).contents(), bucketName);
+                    return encodeRows(
+                            s3.listObjectsV2(ListObjectsV2Request.builder().bucket(bucketName).build()).contents(),
+                            List.of(o -> bucketName));
                 })
                 .put("s3.object_versions", t -> {
                     FilterApplier filter = metadata.filterAppliers.get("s3.object_versions");
                     String bucketName = (String) filter.getFilter((AwsColumnHandle) metadata.columnHandles.get("s3.object_versions").get("bucket_name"), t.getConstraint());
                     requirePredicate(bucketName, "s3.object_versions.bucket_name");
-                    return encodeRows(s3.listObjectVersions(ListObjectVersionsRequest.builder().bucket(bucketName).build()).versions(), bucketName);
+                    return encodeRows(
+                            s3.listObjectVersions(ListObjectVersionsRequest.builder().bucket(bucketName).build()).versions(),
+                            List.of(o -> bucketName));
                 })
                 .put("s3.deleted_objects", t -> {
                     FilterApplier filter = metadata.filterAppliers.get("s3.deleted_objects");
                     String bucketName = (String) filter.getFilter((AwsColumnHandle) metadata.columnHandles.get("s3.deleted_objects").get("bucket_name"), t.getConstraint());
                     requirePredicate(bucketName, "s3.deleted_objects.bucket_name");
-                    return encodeRows(s3.listObjectVersions(ListObjectVersionsRequest.builder().bucket(bucketName).build()).deleteMarkers(), bucketName);
+                    return encodeRows(
+                            s3.listObjectVersions(ListObjectVersionsRequest.builder().bucket(bucketName).build()).deleteMarkers(),
+                            List.of(o -> bucketName));
                 })
                 .build();
     }
@@ -196,16 +203,30 @@ public class AwsRecordSetProvider
 
     private Iterable<List<?>> getInstances(AwsTableHandle table)
     {
-        return ec2.describeInstances()
+        FilterApplier filter = metadata.filterAppliers.get("ec2.instances");
+        String instanceId = (String) filter.getFilter((AwsColumnHandle) metadata.columnHandles.get("ec2.instances").get("instance_id"), table.getConstraint());
+        DescribeInstancesRequest.Builder request = DescribeInstancesRequest.builder();
+        if (instanceId != null) {
+            request.instanceIds(instanceId);
+        }
+        return ec2.describeInstances(request.build())
                 .reservations()
                 .stream()
                 .flatMap(r -> r.instances()
                         .stream()
-                        .map(AwsRecordSetProvider::encodeRow))
+                        .map(i -> encodeRow(i, List.of(o -> Slices.utf8Slice(((Instance) o).instanceId())))))
                 .collect(toList());
     }
 
-    private static Iterable<List<?>> encodeRows(List<? extends SdkPojo> objects, Object... prependValues)
+    private static Iterable<List<?>> encodeRows(List<? extends SdkPojo> objects)
+    {
+        return objects
+                .stream()
+                .map(r -> encodeRow(r, List.of()))
+                .collect(toList());
+    }
+
+    private static Iterable<List<?>> encodeRows(List<? extends SdkPojo> objects, List<Function<SdkPojo, Object>> prependValues)
     {
         return objects
                 .stream()
@@ -213,10 +234,20 @@ public class AwsRecordSetProvider
                 .collect(toList());
     }
 
-    private static List<?> encodeRow(SdkPojo o, Object... prependValues)
+    private static List<?> encodeRow(SdkPojo o)
+    {
+        return o.sdkFields()
+                .stream()
+                .map(f -> encodeField(f, f.getValueOrDefault(o)))
+                .collect(toList());
+    }
+
+    private static List<?> encodeRow(SdkPojo o, List<Function<SdkPojo, Object>> prependValues)
     {
         return Stream.concat(
-                        Arrays.stream(prependValues),
+                        prependValues
+                                .stream()
+                                .map(f -> f.apply(o)),
                         o.sdkFields()
                                 .stream()
                                 .map(f -> encodeField(f, f.getValueOrDefault(o))))

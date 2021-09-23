@@ -108,15 +108,14 @@ public class AwsPageSink
                     throw new TrinoException(INVALID_COLUMN_REFERENCE, format("Inserts to ec2.instances with %s are not supported", columnName));
                 }
 
-                field.set(request, getValue(position, channel, block));
+                field.set(request, getValue(table.getColumnTypes().get(channel), position, block));
             }
         }
         return request;
     }
 
-    private Object getValue(int position, int channel, Block block)
+    private Object getValue(Type type, int position, Block block)
     {
-        Type type = table.getColumnTypes().get(channel);
         Class<?> javaType = type.getJavaType();
         if (javaType == boolean.class) {
             return type.getBoolean(block, position);
