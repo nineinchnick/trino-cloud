@@ -20,14 +20,20 @@ import io.airlift.slice.Slice;
 import io.trino.spi.Page;
 import io.trino.spi.TrinoException;
 import io.trino.spi.block.Block;
+import io.trino.spi.block.SingleMapBlock;
 import io.trino.spi.connector.ConnectorPageSink;
 import io.trino.spi.connector.ConnectorSession;
+import io.trino.spi.type.MapType;
 import io.trino.spi.type.Type;
+import io.trino.spi.type.TypeOperators;
 import software.amazon.awssdk.awscore.AwsRequest;
 import software.amazon.awssdk.core.SdkField;
+import software.amazon.awssdk.core.SdkPojo;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.CreateImageRequest;
 import software.amazon.awssdk.services.ec2.model.RunInstancesRequest;
+import software.amazon.awssdk.services.ec2.model.Tag;
+import software.amazon.awssdk.services.ec2.model.TagSpecification;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 
@@ -38,6 +44,7 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import static io.trino.spi.StandardErrorCode.INVALID_COLUMN_REFERENCE;
+import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.CompletableFuture.completedFuture;
@@ -50,14 +57,20 @@ public class AwsPageSink
 
     private final Map<String, Consumer<Page>> writers;
     private final Map<String, Map<String, SdkField<?>>> fields = new ImmutableMap.Builder<String, Map<String, SdkField<?>>>()
-            .put("ec2.instances", RunInstancesRequest.builder()
-                    .sdkFields()
-                    .stream()
-                    .map(f -> Map.entry(
-                            CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, f.memberName()),
-                            f))
-                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue)))
+            .put("ec2.images", getFieldsMap(CreateImageRequest.builder()))
+            .put("ec2.instances", getFieldsMap(RunInstancesRequest.builder()))
             .build();
+
+    private Map<String, SdkField<?>> getFieldsMap(SdkPojo request)
+    {
+        return request
+                .sdkFields()
+                .stream()
+                .map(f -> Map.entry(
+                        CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, f.memberName()),
+                        f))
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+    }
 
     public AwsPageSink(ConnectorSession session, AwsOutputTableHandle table, Ec2Client ec2, S3Client s3)
     {
@@ -68,8 +81,8 @@ public class AwsPageSink
         this.tableName = table.getTableHandle().getSchemaTableName().toString();
 
         this.writers = new ImmutableMap.Builder<String, Consumer<Page>>()
-                .put("ec2.instances", p -> ec2.runInstances((RunInstancesRequest) setFields(p, RunInstancesRequest.builder().minCount(1).maxCount(1)).build()))
                 .put("ec2.images", p -> ec2.createImage((CreateImageRequest) setFields(p, CreateImageRequest.builder()).build()))
+                .put("ec2.instances", p -> ec2.runInstances((RunInstancesRequest) setFields(p, RunInstancesRequest.builder().minCount(1).maxCount(1)).build()))
                 .put("s3.buckets", p -> s3.createBucket((CreateBucketRequest) setFields(p, CreateBucketRequest.builder()).build()))
                 .build();
     }
@@ -104,11 +117,29 @@ public class AwsPageSink
 
                 String columnName = table.getColumnNames().get(channel);
                 SdkField<?> field = fields.get(tableName).get(columnName);
+                if (field == null && columnName.equals("tags")) {
+                    field = fields.get(tableName).get("tag_specifications");
+                }
                 if (field == null) {
-                    throw new TrinoException(INVALID_COLUMN_REFERENCE, format("Inserts to ec2.instances with %s are not supported", columnName));
+                    throw new TrinoException(INVALID_COLUMN_REFERENCE, format("Inserts to %s with %s are not supported", tableName, columnName));
                 }
 
-                field.set(request, getValue(table.getColumnTypes().get(channel), position, block));
+                Object value = getValue(table.getColumnTypes().get(channel), position, block);
+                if (columnName.equals("tags")) {
+                    ImmutableList.Builder<Tag> tags = new ImmutableList.Builder<>();
+                    Block array = (Block) value;
+                    MapType tagType = new MapType(VARCHAR, VARCHAR, new TypeOperators());
+                    for (int i = 0; i < array.getPositionCount(); i++) {
+                        SingleMapBlock map = (SingleMapBlock) getValue(tagType, i, array);
+                        tags.add(Tag
+                                .builder()
+                                .key((String) getValue(VARCHAR, 0, map.getLoadedBlock()))
+                                .value((String) getValue(VARCHAR, 1, map.getLoadedBlock()))
+                                .build());
+                    }
+                    value = TagSpecification.builder().tags(tags.build()).build();
+                }
+                field.set(request, value);
             }
         }
         return request;

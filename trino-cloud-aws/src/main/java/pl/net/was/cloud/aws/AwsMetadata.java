@@ -18,6 +18,7 @@ import com.google.common.base.CaseFormat;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import io.airlift.slice.Slice;
+import io.trino.spi.StandardErrorCode;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
@@ -40,6 +41,7 @@ import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeOperators;
 import pl.net.was.cloud.aws.filters.BucketFilter;
 import pl.net.was.cloud.aws.filters.FilterApplier;
+import pl.net.was.cloud.aws.filters.ImageFilter;
 import pl.net.was.cloud.aws.filters.InstanceFilter;
 import software.amazon.awssdk.core.SdkField;
 import software.amazon.awssdk.core.protocol.MarshallingType;
@@ -122,6 +124,7 @@ public class AwsMetadata
     public final Map<SchemaTableName, AwsColumnHandle> primaryKeys;
 
     public final Map<String, ? extends FilterApplier> filterAppliers = new ImmutableMap.Builder<String, FilterApplier>()
+            .put("ec2.images", new ImageFilter())
             .put("ec2.instances", new InstanceFilter())
             .put("s3.objects", new BucketFilter())
             .put("s3.object_versions", new BucketFilter())
@@ -134,10 +137,15 @@ public class AwsMetadata
         // must match AwsRecordSetProvider.rowGetters
         columns = new ImmutableMap.Builder<SchemaTableName, List<ColumnMetadata>>()
                 .put(new SchemaTableName("ec2", "availability_zones"), fieldsToColumns(AvailabilityZone.builder().sdkFields()))
-                .put(new SchemaTableName("ec2", "images"), fieldsToColumns(Image.builder().sdkFields()))
+                .put(new SchemaTableName("ec2", "images"), fieldsToColumns(
+                        List.of(
+                                ColumnMetadata.builder().setName(ROW_ID).setType(VARCHAR).setHidden(true).build(),
+                                new ColumnMetadata("instance_id", VARCHAR)),
+                        Image.builder().sdkFields()))
                 .put(new SchemaTableName("ec2", "instance_types"), fieldsToColumns(InstanceTypeInfo.builder().sdkFields()))
                 .put(new SchemaTableName("ec2", "instances"), fieldsToColumns(
-                        List.of(ColumnMetadata.builder().setName(ROW_ID).setType(VARCHAR).setHidden(true).build()),
+                        List.of(
+                                ColumnMetadata.builder().setName(ROW_ID).setType(VARCHAR).setHidden(true).build()),
                         Instance.builder().sdkFields()))
                 .put(new SchemaTableName("ec2", "key_pairs"), fieldsToColumns(KeyPairInfo.builder().sdkFields()))
                 .put(new SchemaTableName("ec2", "launch_templates"), fieldsToColumns(LaunchTemplate.builder().sdkFields()))
@@ -173,6 +181,7 @@ public class AwsMetadata
                         DeleteMarkerEntry.builder().sdkFields()))
                 .build();
         primaryKeys = new ImmutableMap.Builder<SchemaTableName, AwsColumnHandle>()
+                .put(new SchemaTableName("ec2", "images"), new AwsColumnHandle("image_id", VARCHAR))
                 .put(new SchemaTableName("ec2", "instances"), new AwsColumnHandle("instance_id", VARCHAR))
                 .build();
 
@@ -350,7 +359,11 @@ public class AwsMetadata
             ConnectorSession session,
             ConnectorTableHandle tableHandle)
     {
-        return Types.checkType(tableHandle, AwsTableHandle.class, "tableHandle").cloneWithUpdatedColumns(List.of());
+        AwsTableHandle awsTableHandle = Types.checkType(tableHandle, AwsTableHandle.class, "tableHandle");
+        if (!primaryKeys.containsKey(awsTableHandle.getSchemaTableName())) {
+            throw new TrinoException(StandardErrorCode.NOT_SUPPORTED, format("Deletes are not supported for %s", awsTableHandle.getSchemaTableName()));
+        }
+        return awsTableHandle.cloneWithUpdatedColumns(List.of());
     }
 
     @Override
@@ -376,7 +389,11 @@ public class AwsMetadata
             ConnectorTableHandle tableHandle,
             List<ColumnHandle> updatedColumns)
     {
-        return Types.checkType(tableHandle, AwsTableHandle.class, "tableHandle").cloneWithUpdatedColumns(updatedColumns);
+        AwsTableHandle awsTableHandle = Types.checkType(tableHandle, AwsTableHandle.class, "tableHandle");
+        if (!primaryKeys.containsKey(awsTableHandle.getSchemaTableName())) {
+            throw new TrinoException(StandardErrorCode.NOT_SUPPORTED, format("Deletes are not supported for %s", awsTableHandle.getSchemaTableName()));
+        }
+        return awsTableHandle.cloneWithUpdatedColumns(updatedColumns);
     }
 
     @Override

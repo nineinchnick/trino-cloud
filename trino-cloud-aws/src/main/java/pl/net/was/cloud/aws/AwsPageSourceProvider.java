@@ -35,6 +35,7 @@ import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.type.Type;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.AttributeValue;
+import software.amazon.awssdk.services.ec2.model.DeregisterImageRequest;
 import software.amazon.awssdk.services.ec2.model.ModifyInstanceAttributeRequest;
 import software.amazon.awssdk.services.ec2.model.StartInstancesRequest;
 import software.amazon.awssdk.services.ec2.model.StopInstancesRequest;
@@ -71,6 +72,9 @@ public class AwsPageSourceProvider
         this.ec2 = requireNonNull(ec2, "ec2 is null");
 
         this.deleters = new ImmutableMap.Builder<String, Consumer<Block>>()
+                .put("ec2.images", rowIds ->
+                        getStringRowIds(rowIds, metadata.getRowIdHandle(new SchemaTableName("ec2", "images")))
+                                .forEach(id -> ec2.deregisterImage(DeregisterImageRequest.builder().imageId(id).build())))
                 .put("ec2.instances", rowIds -> ec2.terminateInstances(
                         TerminateInstancesRequest.builder()
                                 .instanceIds(
@@ -101,7 +105,8 @@ public class AwsPageSourceProvider
                     wrapUpdater(
                             awsTable.getUpdatedColumns().get(),
                             metadata.getRowIdHandle(tableName),
-                            updaters.get(tableName.toString())));
+                            updaters.get(tableName.toString())),
+                    awsTable.getSchemaTableName().toString());
         }
         return new RecordPageSource(recordSet);
     }
@@ -111,6 +116,9 @@ public class AwsPageSourceProvider
             AwsColumnHandle rowId,
             BiConsumer<Map<String, Object>, Object> updater)
     {
+        if (updater == null) {
+            return null;
+        }
         return (page, channels) -> {
             for (int position = 0; position < page.getPositionCount(); position++) {
                 ImmutableMap.Builder<String, Object> values = new ImmutableMap.Builder<>();

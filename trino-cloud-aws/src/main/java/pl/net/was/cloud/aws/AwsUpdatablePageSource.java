@@ -16,6 +16,8 @@ package pl.net.was.cloud.aws;
 
 import io.airlift.slice.Slice;
 import io.trino.spi.Page;
+import io.trino.spi.StandardErrorCode;
+import io.trino.spi.TrinoException;
 import io.trino.spi.block.Block;
 import io.trino.spi.connector.RecordPageSource;
 import io.trino.spi.connector.RecordSet;
@@ -28,29 +30,39 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
+import static java.lang.String.format;
+
 public class AwsUpdatablePageSource
         implements UpdatablePageSource
 {
     private final RecordPageSource inner;
     private final Consumer<Block> deleter;
     private final BiConsumer<Page, List<Integer>> updater;
+    private final String tableName;
 
-    public AwsUpdatablePageSource(RecordSet recordSet, Consumer<Block> deleter, BiConsumer<Page, List<Integer>> updater)
+    public AwsUpdatablePageSource(RecordSet recordSet, Consumer<Block> deleter, BiConsumer<Page, List<Integer>> updater, String tableName)
     {
         this.inner = new RecordPageSource(recordSet);
         this.deleter = deleter;
         this.updater = updater;
+        this.tableName = tableName;
     }
 
     @Override
     public void deleteRows(Block rowIds)
     {
+        if (deleter == null) {
+            throw new TrinoException(StandardErrorCode.NOT_SUPPORTED, format("Deletes are not supported for %s", tableName));
+        }
         deleter.accept(rowIds);
     }
 
     @Override
     public void updateRows(Page page, List<Integer> columnValueAndRowIdChannels)
     {
+        if (updater == null) {
+            throw new TrinoException(StandardErrorCode.NOT_SUPPORTED, format("Updates are not supported for %s", tableName));
+        }
         updater.accept(page, columnValueAndRowIdChannels);
     }
 

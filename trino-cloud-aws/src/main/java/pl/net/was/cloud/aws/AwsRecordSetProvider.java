@@ -44,6 +44,8 @@ import software.amazon.awssdk.services.ec2.model.DescribeImagesRequest;
 import software.amazon.awssdk.services.ec2.model.DescribeInstanceTypesRequest;
 import software.amazon.awssdk.services.ec2.model.DescribeInstancesRequest;
 import software.amazon.awssdk.services.ec2.model.DescribeSnapshotsRequest;
+import software.amazon.awssdk.services.ec2.model.Filter;
+import software.amazon.awssdk.services.ec2.model.Image;
 import software.amazon.awssdk.services.ec2.model.Instance;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
@@ -95,7 +97,7 @@ public class AwsRecordSetProvider
         // must match AwsMetadata.columns
         this.rowGetters = new ImmutableMap.Builder<String, Function<AwsTableHandle, Iterable<List<?>>>>()
                 .put("ec2.availability_zones", t -> encodeRows(ec2.describeAvailabilityZones().availabilityZones()))
-                .put("ec2.images", t -> encodeRows(ec2.describeImages(DescribeImagesRequest.builder().owners("self").build()).images()))
+                .put("ec2.images", this::getImages)
                 .put("ec2.instance_types", t -> encodeRows(ec2.describeInstanceTypes(DescribeInstanceTypesRequest.builder().build()).instanceTypes()))
                 .put("ec2.instances", this::getInstances)
                 .put("ec2.key_pairs", t -> encodeRows(ec2.describeKeyPairs().keyPairs()))
@@ -199,6 +201,34 @@ public class AwsRecordSetProvider
     private Iterable<List<?>> getRows(AwsTableHandle table)
     {
         return rowGetters.get(table.getSchemaTableName().toString()).apply(table);
+    }
+
+    private Iterable<List<?>> getImages(AwsTableHandle table)
+    {
+        FilterApplier filter = metadata.filterAppliers.get("ec2.images");
+        String imageId = (String) filter.getFilter((AwsColumnHandle) metadata.columnHandles.get("ec2.images").get("image_id"), table.getConstraint());
+        String name = (String) filter.getFilter((AwsColumnHandle) metadata.columnHandles.get("ec2.images").get("name"), table.getConstraint());
+        String owner = (String) filter.getFilter((AwsColumnHandle) metadata.columnHandles.get("ec2.images").get("owner_id"), table.getConstraint());
+        DescribeImagesRequest.Builder request = DescribeImagesRequest.builder();
+        if (imageId != null) {
+            request.imageIds(imageId);
+        }
+        if (name != null) {
+            request.filters(Filter.builder().name("name").values(name).build());
+        }
+        if (owner != null) {
+            request.owners(owner);
+        }
+        if (imageId == null && name == null && owner == null && table.getLimit() == Integer.MAX_VALUE) {
+            throw new TrinoException(INVALID_ROW_FILTER, "Missing a limit or constraint for image_id, name, or owner_id");
+        }
+        return encodeRows(
+                ec2.describeImages(request.build()).images(),
+                List.of(
+                        // populate row_id - to support DELETE
+                        o -> Slices.utf8Slice(((Image) o).imageId()),
+                        // populate instance_id - to support INSERT
+                        o -> null));
     }
 
     private Iterable<List<?>> getInstances(AwsTableHandle table)
