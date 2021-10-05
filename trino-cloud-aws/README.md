@@ -104,11 +104,17 @@ To add a new table that can be read from:
 2. Define a function to generate rows in [AwsRecordSetProvider.rowGetters](src/main/java/pl/net/was/cloud/aws/AwsRecordSetProvider.java).
 3. Profit!
 
+> Note: if the corresponding API method requires predicates that don't map to any field in the response,
+> add an extra column, which value will be populated from the predicate in the WHERE clause.
+
 ## INSERT support
 
 To add INSERT support for any table, append new entries to the `fields` and `writers` properties in `AwsPageSink` class.
 By default, all table columns are optimistically mapped to an AWS SDK request fields.
 Some columns might not have matching fields in a request.
+
+> Note: if the corresponding API method requires values for fields that don't map to any column,
+> add extra ones, and populate them with nulls in the record set provider.
 
 ## UPDATE and DELETE support
 
