@@ -99,9 +99,9 @@ public class AwsUpdatablePageSource
     }
 
     @Override
-    public long getSystemMemoryUsage()
+    public long getMemoryUsage()
     {
-        return inner.getSystemMemoryUsage();
+        return inner.getMemoryUsage();
     }
 
     @Override

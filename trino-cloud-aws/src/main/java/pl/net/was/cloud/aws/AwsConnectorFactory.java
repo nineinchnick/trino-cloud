@@ -42,12 +42,6 @@ public class AwsConnectorFactory
     }
 
     @Override
-    public ConnectorHandleResolver getHandleResolver()
-    {
-        return new AwsHandleResolver();
-    }
-
-    @Override
     public Connector create(String catalogName, Map<String, String> requiredConfig, ConnectorContext context)
     {
         requireNonNull(requiredConfig, "requiredConfig is null");
