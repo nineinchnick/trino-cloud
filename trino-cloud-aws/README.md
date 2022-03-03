@@ -3,6 +3,24 @@ trino-cloud-aws
 
 This is a Trino connector to access AWS resources using SQL.
 
+# Quick Start
+
+To run a Docker container with this connector, set the appropriate environmental variables, and run the following:
+```bash
+docker run \
+  -d \
+  --name trino-cloud \
+  -e AWS_ACCESS_KEY_ID \
+  -e AWS_SECRET_ACCESS_KEY \
+  -e AWS_REGION \
+  -p 8080:8080 \
+  nineinchnick/trino-cloud:0.15
+```
+
+Then use your favourite SQL client to connect to Trino running at http://localhost:8080
+
+# Usage
+
 Not all resources are mapped yet, here's a list of the available schemas and tables:
 * `ec2.availability_zones`
 * `ec2.images`
@@ -80,20 +98,19 @@ An example command to run the Trino server with the aws plugin and catalog enabl
 ```bash
 src=$(git rev-parse --show-toplevel)
 docker run \
-  -v $src/trino-cloud-aws/target/trino-cloud-aws-0.12-SNAPSHOT:/usr/lib/trino/plugin/aws \
-  -v $src/catalog:/etc/trino/catalog \
+  -v $src/trino-cloud-aws/target/trino-cloud-aws-0.15-SNAPSHOT:/usr/lib/trino/plugin/aws \
   -e AWS_ACCESS_KEY_ID \
   -e AWS_SECRET_ACCESS_KEY \
   -e AWS_REGION \
   -p 8080:8080 \
   --name trino \
   -d \
-  trinodb/trino:371
+  trinodb/trino:372
 ```
 
 Connect to that server using:
 ```bash
-docker run -it --rm --link trino trinodb/trino:371 trino --server trino:8080 --catalog aws --schema default
+docker run -it --rm --link trino trinodb/trino:372 trino --server trino:8080 --catalog aws --schema default
 ```
 
 # Adding new tables
