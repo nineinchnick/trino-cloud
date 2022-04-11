@@ -30,7 +30,7 @@
     <parent>
         <groupId>io.airlift</groupId>
         <artifactId>airbase</artifactId>
-        <version>123</version>
+        <version>124</version>
     </parent>
 
     <licenses>
@@ -55,7 +55,7 @@
         <air.check.skip-checkstyle>false</air.check.skip-checkstyle>
 
         <!-- must be in sync with Dockerfile -->
-        <dep.trino.version>375</dep.trino.version>
+        <dep.trino.version>376</dep.trino.version>
         <dep.airlift.version>215</dep.airlift.version>
         <dep.packaging.version>${dep.airlift.version}</dep.packaging.version>
         <dep.errorprone.version>2.12.1</dep.errorprone.version>
