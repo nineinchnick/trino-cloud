@@ -31,6 +31,7 @@ import io.trino.spi.connector.ConnectorTableMetadata;
 import io.trino.spi.connector.ConnectorTableProperties;
 import io.trino.spi.connector.Constraint;
 import io.trino.spi.connector.ConstraintApplicationResult;
+import io.trino.spi.connector.RetryMode;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.connector.SchemaTablePrefix;
 import io.trino.spi.connector.TableColumnsMetadata;
@@ -315,8 +316,12 @@ public class AwsMetadata
     public ConnectorInsertTableHandle beginInsert(
             ConnectorSession session,
             ConnectorTableHandle tableHandle,
-            List<ColumnHandle> columns)
+            List<ColumnHandle> columns,
+            RetryMode retryMode)
     {
+        if (retryMode != RetryMode.NO_RETRIES) {
+            throw new TrinoException(NOT_SUPPORTED, "This connector does not support query retries");
+        }
         AwsTableHandle awsTableHandle = Types.checkType(tableHandle, AwsTableHandle.class, "tableHandle");
         List<AwsColumnHandle> columnHandles = columns.stream()
                 .map(AwsColumnHandle.class::cast)
@@ -351,8 +356,12 @@ public class AwsMetadata
     @Override
     public ConnectorTableHandle beginDelete(
             ConnectorSession session,
-            ConnectorTableHandle tableHandle)
+            ConnectorTableHandle tableHandle,
+            RetryMode retryMode)
     {
+        if (retryMode != RetryMode.NO_RETRIES) {
+            throw new TrinoException(NOT_SUPPORTED, "This connector does not support query retries");
+        }
         AwsTableHandle awsTableHandle = Types.checkType(tableHandle, AwsTableHandle.class, "tableHandle");
         if (!primaryKeys.containsKey(awsTableHandle.getSchemaTableName())) {
             throw new TrinoException(StandardErrorCode.NOT_SUPPORTED, format("Deletes are not supported for %s", awsTableHandle.getSchemaTableName()));
@@ -381,8 +390,12 @@ public class AwsMetadata
     public ConnectorTableHandle beginUpdate(
             ConnectorSession session,
             ConnectorTableHandle tableHandle,
-            List<ColumnHandle> updatedColumns)
+            List<ColumnHandle> updatedColumns,
+            RetryMode retryMode)
     {
+        if (retryMode != RetryMode.NO_RETRIES) {
+            throw new TrinoException(NOT_SUPPORTED, "This connector does not support query retries");
+        }
         AwsTableHandle awsTableHandle = Types.checkType(tableHandle, AwsTableHandle.class, "tableHandle");
         if (!primaryKeys.containsKey(awsTableHandle.getSchemaTableName())) {
             throw new TrinoException(StandardErrorCode.NOT_SUPPORTED, format("Deletes are not supported for %s", awsTableHandle.getSchemaTableName()));
