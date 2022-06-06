@@ -14,7 +14,7 @@ docker run \
   -e AWS_SECRET_ACCESS_KEY \
   -e AWS_REGION \
   -p 8080:8080 \
-  nineinchnick/trino-cloud:0.18
+  nineinchnick/trino-cloud:0.20
 ```
 
 Then use your favourite SQL client to connect to Trino running at http://localhost:8080
@@ -105,12 +105,12 @@ docker run \
   -p 8080:8080 \
   --name trino \
   -d \
-  trinodb/trino:376
+  trinodb/trino:384
 ```
 
 Connect to that server using:
 ```bash
-docker run -it --rm --link trino trinodb/trino:376 trino --server trino:8080 --catalog aws --schema default
+docker run -it --rm --link trino trinodb/trino:384 trino --server trino:8080 --catalog aws --schema default
 ```
 
 # Adding new tables
