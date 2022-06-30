@@ -31,6 +31,7 @@ import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.connector.InMemoryRecordSet;
 import io.trino.spi.connector.RecordSet;
 import io.trino.spi.connector.SchemaTablePrefix;
+import io.trino.spi.connector.TableColumnsMetadata;
 import io.trino.spi.type.MapType;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeOperators;
@@ -56,9 +57,12 @@ import javax.inject.Inject;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Spliterator;
+import java.util.Spliterators;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 import static io.trino.spi.StandardErrorCode.INVALID_ROW_FILTER;
 import static io.trino.spi.type.Timestamps.MICROSECONDS_PER_SECOND;
@@ -83,8 +87,11 @@ public class AwsRecordSetProvider
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.ec2 = requireNonNull(ec2, "ec2 is null");
         this.s3 = requireNonNull(s3, "s3 is null");
-        Map<String, Map<String, AwsColumnHandle>> columns = metadata
-                .streamTableColumns(null, new SchemaTablePrefix())
+        Stream<TableColumnsMetadata> columnsStream = StreamSupport.stream(
+                Spliterators.spliteratorUnknownSize(metadata
+                        .streamTableColumns(null, new SchemaTablePrefix()), Spliterator.ORDERED),
+                false);
+        Map<String, Map<String, AwsColumnHandle>> columns = columnsStream
                 .map(t -> Map.entry(
                         t.getTable().toString(),
                         t.getColumns()

@@ -79,6 +79,7 @@ import javax.inject.Inject;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -303,13 +304,14 @@ public class AwsMetadata
     }
 
     @Override
-    public Stream<TableColumnsMetadata> streamTableColumns(ConnectorSession session, SchemaTablePrefix prefix)
+    public Iterator<TableColumnsMetadata> streamTableColumns(ConnectorSession session, SchemaTablePrefix prefix)
     {
         return columns.entrySet()
                 .stream()
                 .filter(e -> e.getKey().getSchemaName().startsWith(prefix.getSchema().orElse(""))
                         && e.getKey().getTableName().startsWith(prefix.getTable().orElse("")))
-                .map(e -> TableColumnsMetadata.forTable(e.getKey(), e.getValue()));
+                .map(e -> TableColumnsMetadata.forTable(e.getKey(), e.getValue()))
+                .iterator();
     }
 
     @Override

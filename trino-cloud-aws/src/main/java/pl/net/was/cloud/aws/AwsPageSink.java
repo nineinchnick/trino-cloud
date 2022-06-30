@@ -124,6 +124,7 @@ public class AwsPageSink
                     throw new TrinoException(INVALID_COLUMN_REFERENCE, format("Inserts to %s with %s are not supported", tableName, columnName));
                 }
 
+                VARCHAR.getSlice(block, position).toStringUtf8();
                 Object value = getValue(table.getColumnTypes().get(channel), position, block);
                 if (columnName.equals("tags")) {
                     ImmutableList.Builder<Tag> tags = new ImmutableList.Builder<>();

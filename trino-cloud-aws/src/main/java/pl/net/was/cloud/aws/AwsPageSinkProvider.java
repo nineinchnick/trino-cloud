@@ -42,8 +42,7 @@ public class AwsPageSinkProvider
     @Override
     public ConnectorPageSink createPageSink(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorOutputTableHandle tableHandle)
     {
-        // TODO if this is for updates, it's not supported yet
-        return null;
+        return new AwsPageSink(session, (AwsOutputTableHandle) tableHandle, ec2, s3);
     }
 
     @Override
