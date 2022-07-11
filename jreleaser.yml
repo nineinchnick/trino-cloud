@@ -1,0 +1,19 @@
+project:
+  name: trino-cloud
+  description: This is a Trino connector for managing cloud resources, like AWS EC2 instances or S3 buckets
+  license: Apache-2
+  java:
+    groupId: pl.net.was
+    version: 11
+  authors:
+    - Jan Waś
+  extraProperties:
+    inceptionYear: 2021
+
+files:
+  artifacts:
+    - path: {{projectName}}-aws/target/{{projectName}}-aws-{{projectVersion}}.zip
+
+release:
+  github:
+    owner: nineinchnick
