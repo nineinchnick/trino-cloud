@@ -18,13 +18,13 @@
 
     <groupId>pl.net.was</groupId>
     <artifactId>trino-cloud</artifactId>
-    <version>0.26</version>
+    <version>0.27-SNAPSHOT</version>
     <description>Trino Cloud Connectors</description>
     <packaging>pom</packaging>
 
     <scm>
         <developerConnection>scm:git:https://github.com/nineinchnick/trino-cloud.git</developerConnection>
-        <tag>v0.26</tag>
+        <tag>HEAD</tag>
     </scm>
 
     <parent>
