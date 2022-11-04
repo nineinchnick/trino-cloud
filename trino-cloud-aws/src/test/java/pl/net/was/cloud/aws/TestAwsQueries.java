@@ -41,7 +41,7 @@ public class TestAwsQueries
     @Test
     public void selectFromTable()
     {
-        assertQuery("SELECT instance_type FROM aws.ec2.instances WHERE instance_id = 'i-03b6c688b1d220d2e'",
+        assertQuery("SELECT instance_type FROM aws.ec2.instances WHERE instance_id = 'i-0f27b910fbfcd2fb2'",
                 "VALUES ('t2.micro')");
         assertQuery("SELECT creation_date FROM aws.s3.buckets WHERE name = 'jwas'",
                 "VALUES ('2021-10-08T07:02:58')");
