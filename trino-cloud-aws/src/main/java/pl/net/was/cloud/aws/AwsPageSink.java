@@ -40,7 +40,7 @@ import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.Consumer;
+import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 
 import static io.trino.spi.StandardErrorCode.INVALID_COLUMN_REFERENCE;
@@ -52,10 +52,10 @@ import static java.util.concurrent.CompletableFuture.completedFuture;
 public class AwsPageSink
         implements ConnectorPageSink
 {
-    private final AwsOutputTableHandle table;
-    private final String tableName;
+    protected final AwsOutputTableHandle table;
+    protected final String tableName;
 
-    private final Map<String, Consumer<Page>> writers;
+    protected final Map<String, BiConsumer<Page, Integer>> inserters;
     private final Map<String, Map<String, SdkField<?>>> fields = new ImmutableMap.Builder<String, Map<String, SdkField<?>>>()
             .put("ec2.images", getFieldsMap(CreateImageRequest.builder()))
             .put("ec2.instances", getFieldsMap(RunInstancesRequest.builder()))
@@ -80,17 +80,20 @@ public class AwsPageSink
         this.table = table;
         this.tableName = table.getTableHandle().getSchemaTableName().toString();
 
-        this.writers = new ImmutableMap.Builder<String, Consumer<Page>>()
-                .put("ec2.images", p -> ec2.createImage((CreateImageRequest) setFields(p, CreateImageRequest.builder()).build()))
-                .put("ec2.instances", p -> ec2.runInstances((RunInstancesRequest) setFields(p, RunInstancesRequest.builder().minCount(1).maxCount(1)).build()))
-                .put("s3.buckets", p -> s3.createBucket((CreateBucketRequest) setFields(p, CreateBucketRequest.builder()).build()))
+        this.inserters = new ImmutableMap.Builder<String, BiConsumer<Page, Integer>>()
+                .put("ec2.images", (page, pos) -> ec2.createImage((CreateImageRequest) setFields(page, pos, CreateImageRequest.builder()).build()))
+                .put("ec2.instances", (page, pos) -> ec2.runInstances((RunInstancesRequest) setFields(page, pos, RunInstancesRequest.builder().minCount(1).maxCount(1)).build()))
+                .put("s3.buckets", (page, pos) -> s3.createBucket((CreateBucketRequest) setFields(page, pos, CreateBucketRequest.builder()).build()))
                 .build();
     }
 
     @Override
     public CompletableFuture<?> appendPage(Page page)
     {
-        writers.get(tableName).accept(page);
+        BiConsumer<Page, Integer> inserter = inserters.get(tableName);
+        for (int position = 0; position < page.getPositionCount(); position++) {
+            inserter.accept(page, position);
+        }
         return NOT_BLOCKED;
     }
 
@@ -106,42 +109,40 @@ public class AwsPageSink
     {
     }
 
-    private AwsRequest.Builder setFields(Page page, AwsRequest.Builder request)
+    private AwsRequest.Builder setFields(Page page, int position, AwsRequest.Builder request)
     {
-        for (int position = 0; position < page.getPositionCount(); position++) {
-            for (int channel = 0; channel < page.getChannelCount(); channel++) {
-                Block block = page.getBlock(channel);
-                if (block.isNull(position)) {
-                    continue;
-                }
-
-                String columnName = table.getColumnNames().get(channel);
-                SdkField<?> field = fields.get(tableName).get(columnName);
-                if (field == null && columnName.equals("tags")) {
-                    field = fields.get(tableName).get("tag_specifications");
-                }
-                if (field == null) {
-                    throw new TrinoException(INVALID_COLUMN_REFERENCE, format("Inserts to %s with %s are not supported", tableName, columnName));
-                }
-
-                VARCHAR.getSlice(block, position).toStringUtf8();
-                Object value = getValue(table.getColumnTypes().get(channel), position, block);
-                if (columnName.equals("tags")) {
-                    ImmutableList.Builder<Tag> tags = new ImmutableList.Builder<>();
-                    Block array = (Block) value;
-                    MapType tagType = new MapType(VARCHAR, VARCHAR, new TypeOperators());
-                    for (int i = 0; i < array.getPositionCount(); i++) {
-                        SingleMapBlock map = (SingleMapBlock) getValue(tagType, i, array);
-                        tags.add(Tag
-                                .builder()
-                                .key((String) getValue(VARCHAR, 0, map.getLoadedBlock()))
-                                .value((String) getValue(VARCHAR, 1, map.getLoadedBlock()))
-                                .build());
-                    }
-                    value = TagSpecification.builder().tags(tags.build()).build();
-                }
-                field.set(request, value);
+        for (int channel = 0; channel < page.getChannelCount(); channel++) {
+            Block block = page.getBlock(channel);
+            if (block.isNull(position)) {
+                continue;
             }
+
+            String columnName = table.getColumnNames().get(channel);
+            SdkField<?> field = fields.get(tableName).get(columnName);
+            if (field == null && columnName.equals("tags")) {
+                field = fields.get(tableName).get("tag_specifications");
+            }
+            if (field == null) {
+                throw new TrinoException(INVALID_COLUMN_REFERENCE, format("Inserts to %s with %s are not supported", tableName, columnName));
+            }
+
+            VARCHAR.getSlice(block, position).toStringUtf8();
+            Object value = getValue(table.getColumnTypes().get(channel), position, block);
+            if (columnName.equals("tags")) {
+                ImmutableList.Builder<Tag> tags = new ImmutableList.Builder<>();
+                Block array = (Block) value;
+                MapType tagType = new MapType(VARCHAR, VARCHAR, new TypeOperators());
+                for (int i = 0; i < array.getPositionCount(); i++) {
+                    SingleMapBlock map = (SingleMapBlock) getValue(tagType, i, array);
+                    tags.add(Tag
+                            .builder()
+                            .key((String) getValue(VARCHAR, 0, map.getLoadedBlock()))
+                            .value((String) getValue(VARCHAR, 1, map.getLoadedBlock()))
+                            .build());
+                }
+                value = TagSpecification.builder().tags(tags.build()).build();
+            }
+            field.set(request, value);
         }
         return request;
     }

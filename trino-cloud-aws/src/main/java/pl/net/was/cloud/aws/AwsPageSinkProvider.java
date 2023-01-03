@@ -14,6 +14,8 @@
 package pl.net.was.cloud.aws;
 
 import io.trino.spi.connector.ConnectorInsertTableHandle;
+import io.trino.spi.connector.ConnectorMergeSink;
+import io.trino.spi.connector.ConnectorMergeTableHandle;
 import io.trino.spi.connector.ConnectorOutputTableHandle;
 import io.trino.spi.connector.ConnectorPageSink;
 import io.trino.spi.connector.ConnectorPageSinkId;
@@ -30,12 +32,14 @@ import static java.util.Objects.requireNonNull;
 public class AwsPageSinkProvider
         implements ConnectorPageSinkProvider
 {
+    private final AwsMetadata metadata;
     private final Ec2Client ec2;
     private final S3Client s3;
 
     @Inject
-    public AwsPageSinkProvider(Ec2Client ec2, S3Client s3)
+    public AwsPageSinkProvider(AwsMetadata metadata, Ec2Client ec2, S3Client s3)
     {
+        this.metadata = requireNonNull(metadata, "metadata is null");
         this.ec2 = requireNonNull(ec2, "ec2 is null");
         this.s3 = requireNonNull(s3, "s3 is null");
     }
@@ -50,5 +54,11 @@ public class AwsPageSinkProvider
     public ConnectorPageSink createPageSink(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorInsertTableHandle tableHandle, ConnectorPageSinkId pageSinkId)
     {
         return new AwsPageSink(session, (AwsOutputTableHandle) tableHandle, ec2, s3);
+    }
+
+    @Override
+    public ConnectorMergeSink createMergeSink(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorMergeTableHandle tableHandle, ConnectorPageSinkId pageSinkId)
+    {
+        return new AwsMergeSink(session, (AwsOutputTableHandle) tableHandle, metadata, ec2, s3);
     }
 }
