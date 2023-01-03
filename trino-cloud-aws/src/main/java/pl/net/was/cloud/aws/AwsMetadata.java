@@ -120,6 +120,7 @@ public class AwsMetadata
             .build();
 
     public static final String ROW_ID = "row_id";
+    private static final String LEGACY_UPDATE_DELETE_IMPLEMENTATION = "legacy_update_delete_implementation";
 
     public final Map<SchemaTableName, List<ColumnMetadata>> columns;
     public final Map<String, Map<String, ColumnHandle>> columnHandles;

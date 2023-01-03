@@ -65,6 +65,8 @@ To stop an instance, update the instance row:
 UPDATE instances SET state = MAP(ARRAY['Name'], ARRAY['stopped']) WHERE instance_id = 'i-04a7cf7ca232cd251';
 ```
 
+> Note: ``UPDATE`` requires setting `deprecated.legacy-update-delete-implementation=true` in the Trino configuration.
+
 To terminate it, delete the row:
 ```sql
 DELETE FROM instances WHERE instance_id = 'i-04a7cf7ca232cd251';
