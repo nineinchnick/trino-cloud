@@ -23,6 +23,7 @@ import io.trino.spi.TrinoException;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.ConnectorInsertTableHandle;
+import io.trino.spi.connector.ConnectorMergeTableHandle;
 import io.trino.spi.connector.ConnectorMetadata;
 import io.trino.spi.connector.ConnectorOutputMetadata;
 import io.trino.spi.connector.ConnectorSession;
@@ -32,6 +33,7 @@ import io.trino.spi.connector.ConnectorTableProperties;
 import io.trino.spi.connector.Constraint;
 import io.trino.spi.connector.ConstraintApplicationResult;
 import io.trino.spi.connector.RetryMode;
+import io.trino.spi.connector.RowChangeParadigm;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.connector.SchemaTablePrefix;
 import io.trino.spi.connector.TableColumnsMetadata;
@@ -89,6 +91,7 @@ import java.util.stream.Stream;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.StandardErrorCode.TABLE_NOT_FOUND;
+import static io.trino.spi.connector.RowChangeParadigm.CHANGE_ONLY_UPDATED_COLUMNS;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.DoubleType.DOUBLE;
@@ -348,7 +351,13 @@ public class AwsMetadata
     }
 
     @Override
-    public ColumnHandle getDeleteRowIdColumnHandle(
+    public RowChangeParadigm getRowChangeParadigm(ConnectorSession session, ConnectorTableHandle tableHandle)
+    {
+        return CHANGE_ONLY_UPDATED_COLUMNS;
+    }
+
+    @Override
+    public ColumnHandle getMergeRowIdColumnHandle(
             ConnectorSession session,
             ConnectorTableHandle tableHandle)
     {
@@ -356,7 +365,7 @@ public class AwsMetadata
     }
 
     @Override
-    public ConnectorTableHandle beginDelete(
+    public ConnectorMergeTableHandle beginMerge(
             ConnectorSession session,
             ConnectorTableHandle tableHandle,
             RetryMode retryMode)
@@ -366,50 +375,17 @@ public class AwsMetadata
         }
         AwsTableHandle awsTableHandle = Types.checkType(tableHandle, AwsTableHandle.class, "tableHandle");
         if (!primaryKeys.containsKey(awsTableHandle.getSchemaTableName())) {
-            throw new TrinoException(StandardErrorCode.NOT_SUPPORTED, format("Deletes are not supported for %s", awsTableHandle.getSchemaTableName()));
+            throw new TrinoException(StandardErrorCode.NOT_SUPPORTED, format("Deletes and updates are not supported for %s", awsTableHandle.getSchemaTableName()));
         }
-        return awsTableHandle.cloneWithUpdatedColumns(List.of());
+        return new AwsOutputTableHandle(awsTableHandle, List.of(), List.of());
     }
 
     @Override
-    public void finishDelete(
+    public void finishMerge(
             ConnectorSession session,
-            ConnectorTableHandle tableHandle,
-            Collection<Slice> fragments)
-    {
-    }
-
-    @Override
-    public ColumnHandle getUpdateRowIdColumnHandle(
-            ConnectorSession session,
-            ConnectorTableHandle tableHandle,
-            List<ColumnHandle> updatedColumns)
-    {
-        return getRowId((AwsTableHandle) tableHandle);
-    }
-
-    @Override
-    public ConnectorTableHandle beginUpdate(
-            ConnectorSession session,
-            ConnectorTableHandle tableHandle,
-            List<ColumnHandle> updatedColumns,
-            RetryMode retryMode)
-    {
-        if (retryMode != RetryMode.NO_RETRIES) {
-            throw new TrinoException(NOT_SUPPORTED, "This connector does not support query retries");
-        }
-        AwsTableHandle awsTableHandle = Types.checkType(tableHandle, AwsTableHandle.class, "tableHandle");
-        if (!primaryKeys.containsKey(awsTableHandle.getSchemaTableName())) {
-            throw new TrinoException(StandardErrorCode.NOT_SUPPORTED, format("Deletes are not supported for %s", awsTableHandle.getSchemaTableName()));
-        }
-        return awsTableHandle.cloneWithUpdatedColumns(updatedColumns);
-    }
-
-    @Override
-    public void finishUpdate(
-            ConnectorSession session,
-            ConnectorTableHandle tableHandle,
-            Collection<Slice> fragments)
+            ConnectorMergeTableHandle tableHandle,
+            Collection<Slice> fragments,
+            Collection<ComputedStatistics> computedStatistics)
     {
     }
 
@@ -417,7 +393,7 @@ public class AwsMetadata
     {
         ColumnHandle rowId = getRowIdHandle(tableHandle.getSchemaTableName());
         if (rowId == null) {
-            throw new TrinoException(NOT_SUPPORTED, format("Deletes on table %s are not supported", tableHandle.getSchemaTableName().toString()));
+            throw new TrinoException(NOT_SUPPORTED, format("Deletes and updates on table %s are not supported", tableHandle.getSchemaTableName().toString()));
         }
         return rowId;
     }

@@ -18,7 +18,9 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
 import io.trino.spi.connector.ConnectorInsertTableHandle;
+import io.trino.spi.connector.ConnectorMergeTableHandle;
 import io.trino.spi.connector.ConnectorOutputTableHandle;
+import io.trino.spi.connector.ConnectorTableExecuteHandle;
 import io.trino.spi.type.Type;
 
 import java.util.List;
@@ -28,7 +30,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public final class AwsOutputTableHandle
-        implements ConnectorOutputTableHandle, ConnectorInsertTableHandle
+        implements ConnectorOutputTableHandle, ConnectorInsertTableHandle, ConnectorMergeTableHandle
 {
     private final AwsTableHandle tableHandle;
     private final List<String> columnNames;
