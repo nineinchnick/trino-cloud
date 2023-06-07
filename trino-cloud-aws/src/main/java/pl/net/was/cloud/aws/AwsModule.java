@@ -35,6 +35,7 @@ public class AwsModule
     private final NodeManager nodeManager;
     private final TypeManager typeManager;
 
+    @Inject
     public AwsModule(NodeManager nodeManager, TypeManager typeManager)
     {
         this.nodeManager = requireNonNull(nodeManager, "nodeManager is null");
