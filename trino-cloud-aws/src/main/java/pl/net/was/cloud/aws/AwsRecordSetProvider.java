@@ -35,6 +35,7 @@ import io.trino.spi.connector.TableColumnsMetadata;
 import io.trino.spi.type.MapType;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeOperators;
+import jakarta.inject.Inject;
 import pl.net.was.cloud.aws.filters.FilterApplier;
 import software.amazon.awssdk.core.SdkField;
 import software.amazon.awssdk.core.SdkPojo;
@@ -51,8 +52,6 @@ import software.amazon.awssdk.services.ec2.model.Instance;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
-
-import javax.inject.Inject;
 
 import java.time.Instant;
 import java.util.List;

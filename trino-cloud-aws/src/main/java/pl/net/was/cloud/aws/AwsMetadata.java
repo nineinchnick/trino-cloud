@@ -42,6 +42,7 @@ import io.trino.spi.type.ArrayType;
 import io.trino.spi.type.MapType;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeOperators;
+import jakarta.inject.Inject;
 import pl.net.was.cloud.aws.filters.BucketFilter;
 import pl.net.was.cloud.aws.filters.FilterApplier;
 import pl.net.was.cloud.aws.filters.ImageFilter;
@@ -76,8 +77,6 @@ import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.S3Object;
-
-import javax.inject.Inject;
 
 import java.util.ArrayList;
 import java.util.Collection;
