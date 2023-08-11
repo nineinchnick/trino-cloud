@@ -20,6 +20,7 @@ import io.airlift.slice.Slices;
 import io.trino.spi.TrinoException;
 import io.trino.spi.block.Block;
 import io.trino.spi.block.BlockBuilder;
+import io.trino.spi.block.MapBlockBuilder;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.ConnectorRecordSetProvider;
@@ -319,25 +320,23 @@ public class AwsRecordSetProvider
         }
         if (sdkType == MarshallingType.LIST) {
             List<?> list = (List<?>) o;
-            BlockBuilder values;
             if (f.containsTrait(ListTrait.class) &&
                     f.getTrait(ListTrait.class).memberFieldInfo().marshallingType() == MarshallingType.SDK_POJO) {
-                values = mapType.createBlockBuilder(null, o != null ? list.size() : 0);
+                MapBlockBuilder mapBlockBuilder = mapType.createBlockBuilder(null, o != null ? list.size() : 0);
                 if (list != null) {
                     for (Object value : list) {
-                        mapType.writeObject(values, encodeSdkPojo((SdkPojo) value));
+                        mapType.writeObject(mapBlockBuilder, encodeSdkPojo((SdkPojo) value));
                     }
                 }
+                return mapBlockBuilder.build();
             }
-            else {
-                values = VARCHAR.createBlockBuilder(null, o != null ? list.size() : 0);
-                if (list != null) {
-                    for (Object value : list) {
-                        VARCHAR.writeString(values, value.toString());
-                    }
+            BlockBuilder varcharBlockBuilder = VARCHAR.createBlockBuilder(null, o != null ? list.size() : 0);
+            if (list != null) {
+                for (Object value : list) {
+                    VARCHAR.writeString(varcharBlockBuilder, value.toString());
                 }
             }
-            return values.build();
+            return varcharBlockBuilder.build();
         }
         if (o == null) {
             return "";
@@ -347,35 +346,35 @@ public class AwsRecordSetProvider
 
     private static Block encodeSdkPojo(SdkPojo sdkPojo)
     {
-        BlockBuilder values = mapType.createBlockBuilder(null, sdkPojo != null ? sdkPojo.sdkFields().size() : 0);
+        MapBlockBuilder values = mapType.createBlockBuilder(null, sdkPojo != null ? sdkPojo.sdkFields().size() : 0);
         if (sdkPojo == null) {
             values.appendNull();
             return values.build().getObject(0, Block.class);
         }
-        BlockBuilder builder = values.beginBlockEntry();
-        for (SdkField<?> field : sdkPojo.sdkFields()) {
-            VARCHAR.writeString(builder, field.memberName());
-            Object value = field.getValueOrDefault(sdkPojo);
-            VARCHAR.writeString(builder, value != null ? value.toString() : "");
-        }
-        values.closeEntry();
+        values.buildEntry((keyBuilder, valueBuilder) -> {
+            for (SdkField<?> field : sdkPojo.sdkFields()) {
+                VARCHAR.writeString(keyBuilder, field.memberName());
+                Object value = field.getValueOrDefault(sdkPojo);
+                VARCHAR.writeString(valueBuilder, value != null ? value.toString() : "");
+            }
+        });
         return values.build().getObject(0, Block.class);
     }
 
     private static Block encodeMap(Map<String, ?> map)
     {
-        BlockBuilder values = mapType.createBlockBuilder(null, map != null ? map.size() : 0);
+        MapBlockBuilder values = mapType.createBlockBuilder(null, map != null ? map.size() : 0);
         if (map == null) {
             values.appendNull();
             return values.build().getObject(0, Block.class);
         }
-        BlockBuilder builder = values.beginBlockEntry();
-        for (Map.Entry<String, ?> entry : map.entrySet()) {
-            VARCHAR.writeString(builder, entry.getKey());
-            Object value = entry.getValue();
-            VARCHAR.writeString(builder, value != null ? value.toString() : "");
-        }
-        values.closeEntry();
+        values.buildEntry((keyBuilder, valueBuilder) -> {
+            for (Map.Entry<String, ?> entry : map.entrySet()) {
+                VARCHAR.writeString(keyBuilder, entry.getKey());
+                Object value = entry.getValue();
+                VARCHAR.writeString(valueBuilder, value != null ? value.toString() : "");
+            }
+        });
         return values.build().getObject(0, Block.class);
     }
 }
