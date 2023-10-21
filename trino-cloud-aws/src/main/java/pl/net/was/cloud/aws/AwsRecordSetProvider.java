@@ -18,9 +18,9 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import io.airlift.slice.Slices;
 import io.trino.spi.TrinoException;
-import io.trino.spi.block.Block;
 import io.trino.spi.block.BlockBuilder;
 import io.trino.spi.block.MapBlockBuilder;
+import io.trino.spi.block.SqlMap;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.ConnectorRecordSetProvider;
@@ -344,12 +344,12 @@ public class AwsRecordSetProvider
         return o.toString();
     }
 
-    private static Block encodeSdkPojo(SdkPojo sdkPojo)
+    private static SqlMap encodeSdkPojo(SdkPojo sdkPojo)
     {
         MapBlockBuilder values = mapType.createBlockBuilder(null, sdkPojo != null ? sdkPojo.sdkFields().size() : 0);
         if (sdkPojo == null) {
             values.appendNull();
-            return values.build().getObject(0, Block.class);
+            return values.build().getObject(0, SqlMap.class);
         }
         values.buildEntry((keyBuilder, valueBuilder) -> {
             for (SdkField<?> field : sdkPojo.sdkFields()) {
@@ -358,15 +358,15 @@ public class AwsRecordSetProvider
                 VARCHAR.writeString(valueBuilder, value != null ? value.toString() : "");
             }
         });
-        return values.build().getObject(0, Block.class);
+        return values.build().getObject(0, SqlMap.class);
     }
 
-    private static Block encodeMap(Map<String, ?> map)
+    private static SqlMap encodeMap(Map<String, ?> map)
     {
         MapBlockBuilder values = mapType.createBlockBuilder(null, map != null ? map.size() : 0);
         if (map == null) {
             values.appendNull();
-            return values.build().getObject(0, Block.class);
+            return values.build().getObject(0, SqlMap.class);
         }
         values.buildEntry((keyBuilder, valueBuilder) -> {
             for (Map.Entry<String, ?> entry : map.entrySet()) {
@@ -375,6 +375,6 @@ public class AwsRecordSetProvider
                 VARCHAR.writeString(valueBuilder, value != null ? value.toString() : "");
             }
         });
-        return values.build().getObject(0, Block.class);
+        return values.build().getObject(0, SqlMap.class);
     }
 }

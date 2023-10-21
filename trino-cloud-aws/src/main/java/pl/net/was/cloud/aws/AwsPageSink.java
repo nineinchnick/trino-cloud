@@ -20,7 +20,7 @@ import io.airlift.slice.Slice;
 import io.trino.spi.Page;
 import io.trino.spi.TrinoException;
 import io.trino.spi.block.Block;
-import io.trino.spi.block.SingleMapBlock;
+import io.trino.spi.block.SqlMap;
 import io.trino.spi.connector.ConnectorPageSink;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.type.MapType;
@@ -133,11 +133,11 @@ public class AwsPageSink
                 Block array = (Block) value;
                 MapType tagType = new MapType(VARCHAR, VARCHAR, new TypeOperators());
                 for (int i = 0; i < array.getPositionCount(); i++) {
-                    SingleMapBlock map = (SingleMapBlock) getValue(tagType, i, array);
+                    SqlMap map = (SqlMap) getValue(tagType, i, array);
                     tags.add(Tag
                             .builder()
-                            .key((String) getValue(VARCHAR, 0, map.getLoadedBlock()))
-                            .value((String) getValue(VARCHAR, 1, map.getLoadedBlock()))
+                            .key((String) getValue(VARCHAR, 0, map.getRawKeyBlock()))
+                            .value((String) getValue(VARCHAR, 1, map.getRawValueBlock()))
                             .build());
                 }
                 value = TagSpecification.builder().tags(tags.build()).build();

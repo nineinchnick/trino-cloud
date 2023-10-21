@@ -19,7 +19,7 @@ import io.airlift.slice.Slice;
 import io.trino.spi.Page;
 import io.trino.spi.TrinoException;
 import io.trino.spi.block.Block;
-import io.trino.spi.block.SingleMapBlock;
+import io.trino.spi.block.SqlMap;
 import io.trino.spi.connector.ConnectorMergeSink;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.SchemaTableName;
@@ -125,7 +125,7 @@ public class AwsMergeSink
         int channel = table.getColumnNames().indexOf("state");
         Block block = page.getBlock(channel);
         Object value = getValue(table.getColumnTypes().get(channel), position, block);
-        return (String) getValue(VARCHAR, 1, ((SingleMapBlock) value).getLoadedBlock());
+        return (String) getValue(VARCHAR, 1, ((SqlMap) value).getRawKeyBlock());
     }
 
     private String getInstanceType(Page page, int position)
