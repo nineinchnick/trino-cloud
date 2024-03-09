@@ -349,7 +349,7 @@ public class AwsRecordSetProvider
         MapBlockBuilder values = mapType.createBlockBuilder(null, sdkPojo != null ? sdkPojo.sdkFields().size() : 0);
         if (sdkPojo == null) {
             values.appendNull();
-            return values.build().getObject(0, SqlMap.class);
+            return mapType.getObject(values.build(), 0);
         }
         values.buildEntry((keyBuilder, valueBuilder) -> {
             for (SdkField<?> field : sdkPojo.sdkFields()) {
@@ -358,7 +358,7 @@ public class AwsRecordSetProvider
                 VARCHAR.writeString(valueBuilder, value != null ? value.toString() : "");
             }
         });
-        return values.build().getObject(0, SqlMap.class);
+        return mapType.getObject(values.build(), 0);
     }
 
     private static SqlMap encodeMap(Map<String, ?> map)
@@ -366,7 +366,7 @@ public class AwsRecordSetProvider
         MapBlockBuilder values = mapType.createBlockBuilder(null, map != null ? map.size() : 0);
         if (map == null) {
             values.appendNull();
-            return values.build().getObject(0, SqlMap.class);
+            return mapType.getObject(values.build(), 0);
         }
         values.buildEntry((keyBuilder, valueBuilder) -> {
             for (Map.Entry<String, ?> entry : map.entrySet()) {
@@ -375,6 +375,6 @@ public class AwsRecordSetProvider
                 VARCHAR.writeString(valueBuilder, value != null ? value.toString() : "");
             }
         });
-        return values.build().getObject(0, SqlMap.class);
+        return mapType.getObject(values.build(), 0);
     }
 }

@@ -38,6 +38,7 @@ import java.util.Map;
 import java.util.function.BiConsumer;
 
 import static io.trino.spi.StandardErrorCode.INVALID_COLUMN_REFERENCE;
+import static io.trino.spi.type.TinyintType.TINYINT;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
@@ -80,7 +81,7 @@ public class AwsMergeSink
         BiConsumer<Page, Integer> updater = updaters.get(tableName);
         BiConsumer<Block, Integer> deleter = deleters.get(tableName);
         for (int position = 0; position < page.getPositionCount(); position++) {
-            int op = ops.getShort(position, 0);
+            byte op = TINYINT.getByte(ops, position);
             switch (op) {
                 case INSERT_OPERATION_NUMBER:
                     inserter.accept(page, position);
