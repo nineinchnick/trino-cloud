@@ -30,6 +30,7 @@ import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.ConnectorTableHandle;
 import io.trino.spi.connector.ConnectorTableMetadata;
 import io.trino.spi.connector.ConnectorTableProperties;
+import io.trino.spi.connector.ConnectorTableVersion;
 import io.trino.spi.connector.Constraint;
 import io.trino.spi.connector.ConstraintApplicationResult;
 import io.trino.spi.connector.RetryMode;
@@ -241,13 +242,18 @@ public class AwsMetadata
 
     @Override
     public ConnectorTableHandle getTableHandle(
-            ConnectorSession connectorSession,
-            SchemaTableName schemaTableName)
+            ConnectorSession session,
+            SchemaTableName tableName,
+            Optional<ConnectorTableVersion> startVersion,
+            Optional<ConnectorTableVersion> endVersion)
     {
-        if (!listSchemaNames(connectorSession).contains(schemaTableName.getSchemaName())) {
+        if (startVersion.isPresent() || endVersion.isPresent()) {
+            throw new TrinoException(StandardErrorCode.NOT_SUPPORTED, "This connector does not support versioned tables");
+        }
+        if (!listSchemaNames(session).contains(tableName.getSchemaName())) {
             return null;
         }
-        return new AwsTableHandle(schemaTableName);
+        return new AwsTableHandle(tableName);
     }
 
     @Override
