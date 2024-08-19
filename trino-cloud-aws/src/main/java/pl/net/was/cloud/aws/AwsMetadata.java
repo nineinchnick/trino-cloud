@@ -389,7 +389,8 @@ public class AwsMetadata
     @Override
     public void finishMerge(
             ConnectorSession session,
-            ConnectorMergeTableHandle tableHandle,
+            ConnectorMergeTableHandle mergeTableHandle,
+            List<ConnectorTableHandle> sourceTableHandles,
             Collection<Slice> fragments,
             Collection<ComputedStatistics> computedStatistics)
     {
