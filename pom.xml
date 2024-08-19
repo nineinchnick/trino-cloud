@@ -10,7 +10,7 @@
 
     <groupId>pl.net.was</groupId>
     <artifactId>trino-cloud</artifactId>
-    <version>0.66</version>
+    <version>0.67-SNAPSHOT</version>
     <packaging>pom</packaging>
     <description>Trino Cloud Connectors</description>
 
@@ -28,7 +28,7 @@
 
     <scm>
         <developerConnection>scm:git:https://github.com/nineinchnick/trino-cloud.git</developerConnection>
-        <tag>v0.66</tag>
+        <tag>HEAD</tag>
     </scm>
 
     <distributionManagement>
