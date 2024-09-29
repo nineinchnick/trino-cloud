@@ -49,12 +49,6 @@ public class AwsConnectorSplit
         return addresses;
     }
 
-    @Override
-    public Object getInfo()
-    {
-        return "AWS split";
-    }
-
     @JsonProperty("tableHandle")
     public AwsTableHandle getTableHandle()
     {

@@ -350,6 +350,7 @@ public class AwsMetadata
     public Optional<ConnectorOutputMetadata> finishInsert(
             ConnectorSession session,
             ConnectorInsertTableHandle insertHandle,
+            List<ConnectorTableHandle> sourceTableHandles,
             Collection<Slice> fragments,
             Collection<ComputedStatistics> computedStatistics)
     {
@@ -422,6 +423,6 @@ public class AwsMetadata
                 awsTable,
                 columnHandles.get(tableName),
                 filterApplier.getSupportedFilters(),
-                constraint.getSummary());
+                constraint);
     }
 }
