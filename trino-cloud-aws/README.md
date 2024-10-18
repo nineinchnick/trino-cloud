@@ -14,7 +14,7 @@ docker run \
   -e AWS_SECRET_ACCESS_KEY \
   -e AWS_REGION \
   -p 8080:8080 \
-  nineinchnick/trino-cloud:0.69
+  nineinchnick/trino-cloud:0.70
 ```
 
 Then use your favourite SQL client to connect to Trino running at http://localhost:8080
@@ -100,19 +100,19 @@ An example command to run the Trino server with the aws plugin and catalog enabl
 ```bash
 src=$(git rev-parse --show-toplevel)
 docker run \
-  -v $src/trino-cloud-aws/target/trino-cloud-aws-0.69-SNAPSHOT:/usr/lib/trino/plugin/aws \
+  -v $src/trino-cloud-aws/target/trino-cloud-aws-0.71-SNAPSHOT:/usr/lib/trino/plugin/aws \
   -e AWS_ACCESS_KEY_ID \
   -e AWS_SECRET_ACCESS_KEY \
   -e AWS_REGION \
   -p 8080:8080 \
   --name trino \
   -d \
-  trinodb/trino:461
+  trinodb/trino:462
 ```
 
 Connect to that server using:
 ```bash
-docker run -it --rm --link trino trinodb/trino:461 trino --server trino:8080 --catalog aws --schema default
+docker run -it --rm --link trino trinodb/trino:462 trino --server trino:8080 --catalog aws --schema default
 ```
 
 # Adding new tables

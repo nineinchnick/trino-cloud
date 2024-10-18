@@ -22,14 +22,14 @@ docker run \
   -e AWS_REGION \
   -p 8080:8080 \
   --name trino-cloud-aws \
-  nineinchnick/trino-cloud:0.69
+  nineinchnick/trino-cloud:0.70
 ```
 
 Then use your favourite SQL client to connect to Trino running at http://localhost:8080
 
 # Usage
 
-Download one of the ZIP packages, unzip it and copy the `trino-cloud-aws-0.69` directory to the plugin directory on every node in your Trino cluster.
+Download one of the ZIP packages, unzip it and copy the `trino-cloud-aws-0.70` directory to the plugin directory on every node in your Trino cluster.
 Create a `aws.properties` file in your Trino catalog directory and configure the credentials for a specific AWS account.
 To manage multiple accounts at the same time, create separate config files for multiple catalogs.
 
