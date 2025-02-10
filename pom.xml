@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.airlift</groupId>
         <artifactId>airbase</artifactId>
-        <version>215</version>
+        <version>216</version>
     </parent>
 
     <groupId>pl.net.was</groupId>
@@ -54,7 +54,7 @@
         <dep.airlift.version>302</dep.airlift.version>
         <dep.slice.version>2.3</dep.slice.version>
         <!-- temporary: required to be in sync with version pulled by libraries-bom -->
-        <dep.opentelemetry.version>1.46.0</dep.opentelemetry.version>
+        <dep.opentelemetry.version>1.47.0</dep.opentelemetry.version>
         <dep.opentelemetry-instrumentation.version>2.12.0</dep.opentelemetry-instrumentation.version>
         <dep.packaging.version>${dep.airlift.version}</dep.packaging.version>
         <dep.guava.version>33.4.0-jre</dep.guava.version>
