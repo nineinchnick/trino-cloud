@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.airlift</groupId>
         <artifactId>airbase</artifactId>
-        <version>229</version>
+        <version>232</version>
     </parent>
 
     <groupId>pl.net.was</groupId>
@@ -54,7 +54,7 @@
         <dep.airlift.version>312</dep.airlift.version>
         <dep.slice.version>2.3</dep.slice.version>
         <!-- temporary: required to be in sync with version pulled by libraries-bom -->
-        <dep.opentelemetry.version>1.47.0</dep.opentelemetry.version>
+        <dep.opentelemetry.version>1.48.0</dep.opentelemetry.version>
         <dep.opentelemetry-instrumentation.version>2.13.3</dep.opentelemetry-instrumentation.version>
         <dep.packaging.version>${dep.airlift.version}</dep.packaging.version>
         <dep.guava.version>33.4.0-jre</dep.guava.version>
@@ -67,7 +67,7 @@
         <dep.assertj-core.version>3.27.3</dep.assertj-core.version>
         <dep.logback.version>1.5.17</dep.logback.version>
         <dep.plugin.surefire.version>3.2.5</dep.plugin.surefire.version>
-        <dep.jna.version>5.16.0</dep.jna.version>
+        <dep.jna.version>5.17.0</dep.jna.version>
 
         <project.scm.id>github</project.scm.id>
     </properties>
