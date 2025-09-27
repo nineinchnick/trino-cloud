@@ -41,9 +41,9 @@ public class TestAwsQueries
     @Test
     public void selectFromTable()
     {
-        assertQuery("SELECT instance_type FROM aws.ec2.instances WHERE instance_id = 'i-0f27b910fbfcd2fb2'",
-                "VALUES ('t2.micro')");
-        assertQuery("SELECT creation_date FROM aws.s3.buckets WHERE name = 'jwas'",
-                "VALUES ('2024-11-13T07:51:56')");
+        assertQuery("SELECT instance_type FROM aws.ec2.instances WHERE instance_id = 'i-076720e508bb0f22b'",
+                "VALUES ('t3.micro')");
+        assertQuery("SELECT creation_date FROM aws.s3.buckets WHERE name = 'jan.was'",
+                "VALUES ('2025-09-27T08:07:08')");
     }
 }
