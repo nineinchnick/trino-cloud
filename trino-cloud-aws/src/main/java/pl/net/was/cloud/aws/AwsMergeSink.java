@@ -95,6 +95,12 @@ public class AwsMergeSink
         }
     }
 
+    @Override
+    public long getCompletedBytes()
+    {
+        return 0L;
+    }
+
     private void updateInstance(Page page, int position)
     {
         String rowId = getRowId(page, position);
