@@ -124,7 +124,7 @@ public interface FilterApplier
             return newConstraint;
         }
         switch (supportedFilter) {
-            case GREATER_THAN_EQUAL:
+            case GREATER_THAN_EQUAL -> {
                 // normalize the constraint into a low-bound range
                 Range span = domain.getValues().getRanges().getSpan();
                 if (span.isLowUnbounded()) {
@@ -139,13 +139,14 @@ public interface FilterApplier
                                                 domain.getType(),
                                                 span.getLowBoundedValue())),
                                 false)));
-                break;
-            case EQUAL:
+            }
+            case EQUAL -> {
                 if (!domain.getValues().isDiscreteSet() && !domain.getValues().getRanges().getOrderedRanges().stream().allMatch(Range::isSingleValue)) {
                     log.warning(format("Not pushing down filter on %s because it's not a discrete set: %s", column.getName(), domain));
                     return null;
                 }
                 return newConstraint;
+            }
         }
         return newConstraint;
     }
@@ -182,25 +183,26 @@ public interface FilterApplier
             domain = constraint.getDomains().get().get(column);
         }
         switch (column.getType().getBaseName()) {
-            case StandardTypes.TIMESTAMP:
-            case StandardTypes.TIMESTAMP_WITH_TIME_ZONE:
+            case StandardTypes.TIMESTAMP, StandardTypes.TIMESTAMP_WITH_TIME_ZONE -> {
                 if (domain == null) {
                     return defaultValue;
                 }
                 long since = (long) domain.getValues().getRanges().getSpan().getLowBoundedValue();
                 return ISO_LOCAL_DATE_TIME.format(fromTrinoTimestamp(since)) + "Z";
-            case StandardTypes.VARCHAR:
+            }
+            case StandardTypes.VARCHAR -> {
                 if (domain == null) {
                     return defaultValue;
                 }
                 return ((Slice) domain.getSingleValue()).toStringUtf8();
-            case StandardTypes.BIGINT:
-            case StandardTypes.INTEGER:
+            }
+            case StandardTypes.BIGINT, StandardTypes.INTEGER -> {
                 if (domain == null) {
                     return defaultValue;
                 }
                 return domain.getSingleValue();
-            default:
+            }
+            default ->
                 throw new TrinoException(INVALID_ROW_FILTER, "Unexpected constraint for " + column.getName() + "(" + column.getType().getBaseName() + ")");
         }
     }

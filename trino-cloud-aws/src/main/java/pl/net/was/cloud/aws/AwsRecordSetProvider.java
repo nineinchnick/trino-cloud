@@ -31,8 +31,6 @@ import io.trino.spi.connector.ConnectorTableMetadata;
 import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.connector.InMemoryRecordSet;
 import io.trino.spi.connector.RecordSet;
-import io.trino.spi.connector.SchemaTablePrefix;
-import io.trino.spi.connector.TableColumnsMetadata;
 import io.trino.spi.type.MapType;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeOperators;
@@ -57,12 +55,8 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.Spliterator;
-import java.util.Spliterators;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
 
 import static io.trino.spi.StandardErrorCode.INVALID_ROW_FILTER;
 import static io.trino.spi.type.Timestamps.MICROSECONDS_PER_SECOND;
@@ -87,20 +81,6 @@ public class AwsRecordSetProvider
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.ec2 = requireNonNull(ec2, "ec2 is null");
         this.s3 = requireNonNull(s3, "s3 is null");
-        Stream<TableColumnsMetadata> columnsStream = StreamSupport.stream(
-                Spliterators.spliteratorUnknownSize(metadata
-                        .streamTableColumns(null, new SchemaTablePrefix()), Spliterator.ORDERED),
-                false);
-        Map<String, Map<String, AwsColumnHandle>> columns = columnsStream
-                .map(t -> Map.entry(
-                        t.getTable().toString(),
-                        t.getColumns()
-                                .orElse(List.of())
-                                .stream()
-                                .collect(Collectors.toMap(
-                                        ColumnMetadata::getName,
-                                        c -> new AwsColumnHandle(c.getName(), c.getType())))))
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
         // must match AwsMetadata.columns
         this.rowGetters = new ImmutableMap.Builder<String, Function<AwsTableHandle, Iterable<List<?>>>>()
                 .put("ec2.availability_zones", t -> encodeRows(ec2.describeAvailabilityZones().availabilityZones()))
@@ -316,7 +296,7 @@ public class AwsRecordSetProvider
             return encodeSdkPojo((SdkPojo) o);
         }
         if (sdkType == MarshallingType.MAP) {
-            return encodeMap((Map<String, ?>) o);
+            return encodeMap((Map<?, ?>) o);
         }
         if (sdkType == MarshallingType.LIST) {
             List<?> list = (List<?>) o;
@@ -361,7 +341,7 @@ public class AwsRecordSetProvider
         return mapType.getObject(values.build(), 0);
     }
 
-    private static SqlMap encodeMap(Map<String, ?> map)
+    private static SqlMap encodeMap(Map<?, ?> map)
     {
         MapBlockBuilder values = mapType.createBlockBuilder(null, map != null ? map.size() : 0);
         if (map == null) {
@@ -369,8 +349,8 @@ public class AwsRecordSetProvider
             return mapType.getObject(values.build(), 0);
         }
         values.buildEntry((keyBuilder, valueBuilder) -> {
-            for (Map.Entry<String, ?> entry : map.entrySet()) {
-                VARCHAR.writeString(keyBuilder, entry.getKey());
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                VARCHAR.writeString(keyBuilder, (String) entry.getKey());
                 Object value = entry.getValue();
                 VARCHAR.writeString(valueBuilder, value != null ? value.toString() : "");
             }

@@ -34,10 +34,9 @@ import io.trino.spi.connector.ConnectorTableVersion;
 import io.trino.spi.connector.Constraint;
 import io.trino.spi.connector.ConstraintApplicationResult;
 import io.trino.spi.connector.RetryMode;
+import io.trino.spi.connector.RelationColumnsMetadata;
 import io.trino.spi.connector.RowChangeParadigm;
 import io.trino.spi.connector.SchemaTableName;
-import io.trino.spi.connector.SchemaTablePrefix;
-import io.trino.spi.connector.TableColumnsMetadata;
 import io.trino.spi.statistics.ComputedStatistics;
 import io.trino.spi.type.ArrayType;
 import io.trino.spi.type.MapType;
@@ -85,6 +84,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -313,13 +314,18 @@ public class AwsMetadata
     }
 
     @Override
-    public Iterator<TableColumnsMetadata> streamTableColumns(ConnectorSession session, SchemaTablePrefix prefix)
+    public Iterator<RelationColumnsMetadata> streamRelationColumns(
+            ConnectorSession session,
+            Optional<String> schemaName,
+            UnaryOperator<Set<SchemaTableName>> relationFilter)
     {
-        return columns.entrySet()
+        Map<SchemaTableName, RelationColumnsMetadata> relationColumns = columns.entrySet()
                 .stream()
-                .filter(e -> e.getKey().getSchemaName().startsWith(prefix.getSchema().orElse(""))
-                        && e.getKey().getTableName().startsWith(prefix.getTable().orElse("")))
-                .map(e -> TableColumnsMetadata.forTable(e.getKey(), e.getValue()))
+                .filter(entry -> schemaName.isEmpty() || entry.getKey().getSchemaName().equals(schemaName.get()))
+                .collect(toMap(Map.Entry::getKey, entry -> RelationColumnsMetadata.forTable(entry.getKey(), entry.getValue())));
+        return relationFilter.apply(relationColumns.keySet())
+                .stream()
+                .map(relationColumns::get)
                 .iterator();
     }
 

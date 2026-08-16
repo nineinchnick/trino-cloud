@@ -44,6 +44,6 @@ public class TestAwsQueries
         assertQuery("SELECT instance_type FROM aws.ec2.instances WHERE instance_id = 'i-076720e508bb0f22b'",
                 "VALUES ('t3.micro')");
         assertQuery("SELECT creation_date FROM aws.s3.buckets WHERE name = 'jan.was'",
-                "VALUES ('2025-09-27T08:07:08')");
+                "VALUES ('2026-04-30T03:06:24')");
     }
 }
