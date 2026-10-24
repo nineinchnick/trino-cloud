@@ -195,8 +195,25 @@ final class TestAwsConnectorEmulator
     void testInstanceTags()
     {
         assertQuery(
-                "SELECT count(*) FROM aws.ec2.instances CROSS JOIN UNNEST(tags) AS t(tag) WHERE tag['Key'] = 'Name' AND tag['Value'] = '%s'".formatted(NAME),
+                "SELECT count(*) FROM aws.ec2.instances WHERE tags['Name'] = '%s'".formatted(NAME),
                 "VALUES 2");
+    }
+
+    @Test
+    void testNestedObjectsAsRows()
+    {
+        assertQuery(
+                "SELECT state.name, state.code, placement.availability_zone, security_groups[1].group_id FROM aws.ec2.instances WHERE instance_id = '%s'".formatted(testData.instanceIds().getFirst()),
+                "VALUES ('running', 16, 'us-east-1a', '%s')".formatted(testData.securityGroupId()));
+        assertThat(query("SELECT typeof(state), typeof(tags) FROM aws.ec2.instances WHERE instance_id = '%s'".formatted(testData.instanceIds().getFirst())))
+                .matches("VALUES (VARCHAR 'row(\"code\" integer, \"name\" varchar)', VARCHAR 'map(varchar, varchar)')");
+    }
+
+    @Test
+    void testTimestampColumns()
+    {
+        assertThat(query("SELECT typeof(launch_time), launch_time BETWEEN now() - INTERVAL '1' DAY AND now() FROM aws.ec2.instances WHERE instance_id = '%s'".formatted(testData.instanceIds().getFirst())))
+                .matches("VALUES (VARCHAR 'timestamp(3) with time zone', true)");
     }
 
     @Test
@@ -219,7 +236,7 @@ final class TestAwsConnectorEmulator
     void testNullNestedObjectColumns()
     {
         assertQuery(
-                "SELECT iam_instance_profile IS NULL, placement['HostId'] IS NULL, placement['AvailabilityZone'] FROM aws.ec2.instances WHERE instance_id = '%s'".formatted(testData.instanceIds().getFirst()),
+                "SELECT iam_instance_profile IS NULL, placement.host_id IS NULL, placement.availability_zone FROM aws.ec2.instances WHERE instance_id = '%s'".formatted(testData.instanceIds().getFirst()),
                 "VALUES (true, true, 'us-east-1a')");
     }
 

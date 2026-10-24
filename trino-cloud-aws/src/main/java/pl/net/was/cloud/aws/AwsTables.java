@@ -20,7 +20,7 @@ import com.google.inject.Inject;
 import io.airlift.slice.Slices;
 import io.trino.spi.TrinoException;
 import io.trino.spi.block.Block;
-import io.trino.spi.block.SqlMap;
+import io.trino.spi.block.SqlRow;
 import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.SchemaTableName;
 import pl.net.was.cloud.aws.AwsTable.Inserter;
@@ -45,6 +45,7 @@ import software.amazon.awssdk.services.ec2.model.DescribeSnapshotsRequest;
 import software.amazon.awssdk.services.ec2.model.Filter;
 import software.amazon.awssdk.services.ec2.model.Image;
 import software.amazon.awssdk.services.ec2.model.Instance;
+import software.amazon.awssdk.services.ec2.model.InstanceState;
 import software.amazon.awssdk.services.ec2.model.InstanceTypeInfo;
 import software.amazon.awssdk.services.ec2.model.KeyPairInfo;
 import software.amazon.awssdk.services.ec2.model.LaunchTemplate;
@@ -101,6 +102,7 @@ import static java.util.Objects.requireNonNull;
 import static java.util.function.Function.identity;
 import static pl.net.was.cloud.aws.AwsTable.ROW_ID;
 import static pl.net.was.cloud.aws.SdkColumns.columns;
+import static pl.net.was.cloud.aws.SdkColumns.mappedFields;
 import static pl.net.was.cloud.aws.SdkIterables.emptyOnErrorCodes;
 import static pl.net.was.cloud.aws.SdkIterables.fallbackOnErrorCodes;
 import static pl.net.was.cloud.aws.SdkRowEncoder.encodeRow;
@@ -327,7 +329,7 @@ public class AwsTables
         if (!values.containsKey("state")) {
             return;
         }
-        String desiredState = getStateName((SqlMap) values.get("state"));
+        String desiredState = getStateName((SqlRow) values.get("state"));
         switch (desiredState) {
             case "running" -> ec2.startInstances(StartInstancesRequest.builder().instanceIds(rowId).build());
             case "stopped" -> ec2.stopInstances(StopInstancesRequest.builder().instanceIds(rowId).build());
@@ -341,20 +343,13 @@ public class AwsTables
     }
 
     // TODO #18 the state column should be a VARCHAR with the state name
-    private static String getStateName(SqlMap state)
+    private static String getStateName(SqlRow state)
     {
-        Block keys = state.getRawKeyBlock();
-        Block values = state.getRawValueBlock();
-        for (int i = 0; i < state.getSize(); i++) {
-            int position = state.getRawOffset() + i;
-            if (!VARCHAR.getSlice(keys, position).toStringUtf8().equals("Name")) {
-                continue;
-            }
-            if (values.isNull(position)) {
-                break;
-            }
-            return VARCHAR.getSlice(values, position).toStringUtf8();
+        int nameField = Iterables.indexOf(mappedFields(InstanceState.builder().sdkFields()), field -> field.memberName().equals("Name"));
+        Block names = state.getRawFieldBlock(nameField);
+        if (names.isNull(state.getRawIndex())) {
+            throw new TrinoException(INVALID_ARGUMENTS, "Updates of ec2.instances.state column require a row with a name, like ROW(NULL, 'stopped')");
         }
-        throw new TrinoException(INVALID_ARGUMENTS, "Updates of ec2.instances.state column require a map with a Name key, like MAP(ARRAY['Name'], ARRAY['stopped'])");
+        return VARCHAR.getSlice(names, state.getRawIndex()).toStringUtf8();
     }
 }

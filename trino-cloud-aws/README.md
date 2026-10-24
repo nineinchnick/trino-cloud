@@ -71,6 +71,47 @@ For example:
 SELECT key, size FROM s3.objects WHERE bucket_name = 'my-bucket';
 ```
 
+## Type mapping
+
+Columns are derived from the fields of the AWS SDK model of each table.
+Column and nested field names are the SDK member names in `snake_case`, like `instance_id` for `InstanceId`.
+Acronyms stay whole, like `size_in_gb` for `SizeInGB`, and so do a few mixed-case words,
+like `vcpu_info` for `VCpuInfo`, `etag` for `ETag` and `size_in_mib` for `SizeInMiB`.
+
+| AWS SDK type                                        | Trino type                    |
+|-----------------------------------------------------|-------------------------------|
+| `String`                                            | `varchar`                     |
+| `Byte`                                              | `tinyint`                     |
+| `Short`                                             | `smallint`                    |
+| `Integer`                                           | `integer`                     |
+| `Long`                                              | `bigint`                      |
+| `Float`                                             | `real`                        |
+| `Double`                                            | `double`                      |
+| `Boolean`                                           | `boolean`                     |
+| `Instant`                                           | `timestamp(3) with time zone` |
+| `SdkBytes`                                          | `varbinary`                   |
+| `BigDecimal`                                        | `varchar`                     |
+| `Document`                                          | `varchar` with JSON text      |
+| Nested object                                       | `row(...)`                    |
+| `List`                                              | `array(...)`                  |
+| `Map`                                               | `map(varchar, ...)`           |
+| `List` of objects with a Key and a Value, like tags | `map(varchar, varchar)`       |
+
+Timestamps are in UTC. Values that aren't set in the AWS API response are `NULL`.
+Objects nested more than 8 levels deep are mapped to `varchar`, with the text representation of the SDK object.
+Nested objects are rows, so their fields can be accessed using the dereference operator,
+and tags are maps, indexed by the tag key:
+```sql
+SELECT instance_id, state.name, placement.availability_zone, tags['Name']
+FROM ec2.instances
+WHERE launch_time > now() - INTERVAL '1' DAY;
+```
+
+To find instances without a tag, use `element_at`, because the subscript operator fails for missing keys:
+```sql
+SELECT instance_id FROM ec2.instances WHERE element_at(tags, 'Owner') IS NULL;
+```
+
 ## Writes
 
 Writes are disabled by default, so the connector can't create, modify or remove any AWS resources.
@@ -105,7 +146,7 @@ so a single statement can't change or remove every resource at once.
 Only the `state` and `instance_type` columns can be updated.
 To stop or start an instance, set its state name to `stopped` or `running`:
 ```sql
-UPDATE ec2.instances SET state = MAP(ARRAY['Name'], ARRAY['stopped']) WHERE instance_id = 'i-04a7cf7ca232cd251';
+UPDATE ec2.instances SET state = ROW(NULL, 'stopped') WHERE instance_id = 'i-04a7cf7ca232cd251';
 ```
 
 To change the instance type, stop the instance first, because AWS only allows it for stopped instances:
@@ -292,7 +333,9 @@ one [AwsTable](src/main/java/pl/net/was/cloud/aws/AwsTable.java) definition per 
 To add a new table that can be read from:
 
 1. If the table lists a single AWS SDK model, add a `simpleTable(schema, name, Model.builder().sdkFields(), () -> client.describeX().items())` entry.
-   Columns are derived from the SDK model fields.
+   Columns are derived from the SDK model fields, see [Type mapping](#type-mapping).
+   If a name is split in the wrong place, or two fields would end up with the same column name, which fails creating the catalog,
+   add the mixed-case word to `WORDS` in [SdkColumns](src/main/java/pl/net/was/cloud/aws/SdkColumns.java).
 2. Otherwise, use `AwsTable.builder(name, columns)` and set a `rowSource`, which generates rows for a table handle.
    Use `SdkColumns.columns(extraColumns, sdkFields)` to add columns that aren't in the SDK model.
 3. Profit!
