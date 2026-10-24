@@ -153,10 +153,10 @@ The `ec2.instances` table also has limited `UPDATE` and `DELETE` support.
 `UPDATE` and `DELETE` require a filter on the primary key column, like `WHERE instance_id = '...'`,
 so a single statement can't change or remove every resource at once.
 
-Only the `state` and `instance_type` columns can be updated.
-To stop or start an instance, set its state name to `stopped` or `running`:
+Only the `state_name` and `instance_type` columns can be updated.
+`state_name` holds the same value as `state.name`, and setting it to `stopped` or `running` stops or starts the instance:
 ```sql
-UPDATE ec2.instances SET state = ROW(NULL, 'stopped') WHERE instance_id = 'i-04a7cf7ca232cd251';
+UPDATE ec2.instances SET state_name = 'stopped' WHERE instance_id = 'i-04a7cf7ca232cd251';
 ```
 
 To change the instance type, stop the instance first, because AWS only allows it for stopped instances:

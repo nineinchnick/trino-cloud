@@ -15,15 +15,15 @@
 package pl.net.was.cloud.aws;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.inject.Inject;
+import io.airlift.slice.Slice;
 import io.airlift.slice.Slices;
 import io.trino.spi.TrinoException;
-import io.trino.spi.block.Block;
-import io.trino.spi.block.SqlRow;
 import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.SchemaTableName;
 import pl.net.was.cloud.aws.AwsTable.ColumnSetter;
@@ -49,7 +49,6 @@ import software.amazon.awssdk.services.ec2.model.DescribeSnapshotsRequest;
 import software.amazon.awssdk.services.ec2.model.Filter;
 import software.amazon.awssdk.services.ec2.model.Image;
 import software.amazon.awssdk.services.ec2.model.Instance;
-import software.amazon.awssdk.services.ec2.model.InstanceState;
 import software.amazon.awssdk.services.ec2.model.InstanceTypeInfo;
 import software.amazon.awssdk.services.ec2.model.KeyPairInfo;
 import software.amazon.awssdk.services.ec2.model.LaunchTemplate;
@@ -88,6 +87,7 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.S3Object;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
@@ -100,15 +100,14 @@ import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
-import static io.trino.spi.StandardErrorCode.INVALID_ARGUMENTS;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.StandardErrorCode.TABLE_NOT_FOUND;
 import static io.trino.spi.type.VarcharType.VARCHAR;
+import static java.util.Collections.unmodifiableList;
 import static java.util.Objects.requireNonNull;
 import static java.util.function.Function.identity;
 import static pl.net.was.cloud.aws.AwsTable.ROW_ID;
 import static pl.net.was.cloud.aws.SdkColumns.columns;
-import static pl.net.was.cloud.aws.SdkColumns.mappedFields;
 import static pl.net.was.cloud.aws.SdkIterables.emptyOnErrorCodes;
 import static pl.net.was.cloud.aws.SdkIterables.fallbackOnErrorCodes;
 import static pl.net.was.cloud.aws.SdkRowEncoder.encodeRow;
@@ -119,6 +118,8 @@ public class AwsTables
     private static final Set<String> MISSING_IMAGE_CODES = ImmutableSet.of("InvalidAMIID.NotFound", "InvalidAMIID.Malformed");
     private static final Set<String> MISSING_SNAPSHOT_CODES = ImmutableSet.of("InvalidSnapshot.NotFound", "InvalidSnapshotID.Malformed");
     private static final String SELF_OWNER = "self";
+    // the state is a row with a code and a name, and UPDATE changes it by setting just the name
+    private static final String STATE_NAME = "state_name";
 
     private final Map<SchemaTableName, AwsTable> tables;
 
@@ -141,7 +142,7 @@ public class AwsTables
                         simpleTable("ec2", "instance_types", InstanceTypeInfo.builder().sdkFields(), () -> ec2.describeInstanceTypesPaginator(DescribeInstanceTypesRequest.builder().build()).instanceTypes()),
                         AwsTable.builder(
                                         new SchemaTableName("ec2", "instances"),
-                                        columns(List.of(rowIdColumn()), Instance.builder().sdkFields()))
+                                        withColumnAfter(columns(List.of(rowIdColumn()), Instance.builder().sdkFields()), "state", new ColumnMetadata(STATE_NAME, VARCHAR)))
                                 .rowSource((table, handle) -> instances(ec2, table, handle))
                                 .filterApplier(new InstanceFilter())
                                 .primaryKey("instance_id")
@@ -149,7 +150,7 @@ public class AwsTables
                                         () -> RunInstancesRequest.builder().minCount(1).maxCount(1),
                                         request -> ec2.runInstances((RunInstancesRequest) request).instances().stream().map(Instance::instanceId).toList(),
                                         tagsSetter(ResourceType.INSTANCE)))
-                                .updater(new Updater(ImmutableSet.of("state", "instance_type"), (rowId, values) -> updateInstance(ec2, rowId, values)))
+                                .updater(new Updater(ImmutableSet.of(STATE_NAME, "instance_type"), (rowId, values) -> updateInstance(ec2, rowId, values)))
                                 .deleter(rowId -> ec2.terminateInstances(TerminateInstancesRequest.builder().instanceIds(rowId).build()))
                                 .build(),
                         simpleTable("ec2", "key_pairs", KeyPairInfo.builder().sdkFields(), () -> ec2.describeKeyPairs().keyPairs()),
@@ -311,9 +312,39 @@ public class AwsTables
             request.filters(Filter.builder().name("instance-id").values(instanceIds).build());
         }
         Iterable<Reservation> reservations = ec2.describeInstancesPaginator(request.build()).reservations();
-        return encodeRows(
+        int stateNameIndex = Iterables.indexOf(table.columns(), column -> column.getName().equals(STATE_NAME));
+        return Iterables.transform(
                 Iterables.concat(Iterables.transform(reservations, Reservation::instances)),
-                List.of(o -> Slices.utf8Slice(((Instance) o).instanceId())));
+                instance -> withValueAt(
+                        encodeRow(instance, List.of(o -> Slices.utf8Slice(((Instance) o).instanceId()))),
+                        stateNameIndex,
+                        stateName(instance)));
+    }
+
+    private static Slice stateName(Instance instance)
+    {
+        if (instance.state() == null || instance.state().name() == null) {
+            return null;
+        }
+        return Slices.utf8Slice(instance.state().nameAsString());
+    }
+
+    private static List<ColumnMetadata> withColumnAfter(List<ColumnMetadata> columns, String columnName, ColumnMetadata column)
+    {
+        int index = Iterables.indexOf(columns, existing -> existing.getName().equals(columnName));
+        checkArgument(index >= 0, "Column %s does not exist", columnName);
+        return ImmutableList.<ColumnMetadata>builder()
+                .addAll(columns.subList(0, index + 1))
+                .add(column)
+                .addAll(columns.subList(index + 1, columns.size()))
+                .build();
+    }
+
+    private static List<?> withValueAt(List<?> row, int index, Object value)
+    {
+        List<Object> values = new ArrayList<>(row);
+        values.add(index, value);
+        return unmodifiableList(values);
     }
 
     // tags are set using tag specifications, which also require the type of the created resource
@@ -375,10 +406,10 @@ public class AwsTables
                             .instanceId(rowId)
                             .build());
         }
-        if (!values.containsKey("state")) {
+        if (!values.containsKey(STATE_NAME)) {
             return;
         }
-        String desiredState = getStateName((SqlRow) values.get("state"));
+        String desiredState = (String) values.get(STATE_NAME);
         switch (desiredState) {
             case "running" -> ec2.startInstances(StartInstancesRequest.builder().instanceIds(rowId).build());
             case "stopped" -> ec2.stopInstances(StopInstancesRequest.builder().instanceIds(rowId).build());
@@ -389,16 +420,5 @@ public class AwsTables
     private static <T extends SdkPojo> Iterable<List<?>> encodeRows(Iterable<T> objects, List<Function<SdkPojo, Object>> prependValues)
     {
         return Iterables.transform(objects, object -> encodeRow(object, prependValues));
-    }
-
-    // TODO #18 the state column should be a VARCHAR with the state name
-    private static String getStateName(SqlRow state)
-    {
-        int nameField = Iterables.indexOf(mappedFields(InstanceState.builder().sdkFields()), field -> field.memberName().equals("Name"));
-        Block names = state.getRawFieldBlock(nameField);
-        if (names.isNull(state.getRawIndex())) {
-            throw new TrinoException(INVALID_ARGUMENTS, "Updates of ec2.instances.state column require a row with a name, like ROW(NULL, 'stopped')");
-        }
-        return VARCHAR.getSlice(names, state.getRawIndex()).toStringUtf8();
     }
 }

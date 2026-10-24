@@ -129,19 +129,22 @@ final class TestAwsConnectorEmulatorWrites
         String instanceId = runInstance(subnetId);
         String otherInstanceId = runInstance(subnetId);
 
-        assertUpdate("UPDATE aws.ec2.instances SET state = ROW(NULL, 'stopped') WHERE instance_id = '%s'".formatted(instanceId), 1);
+        assertUpdate("UPDATE aws.ec2.instances SET state_name = 'stopped' WHERE instance_id = '%s'".formatted(instanceId), 1);
         assertThat(instanceState(instanceId)).isEqualTo("stopped");
         assertThat(instanceState(otherInstanceId)).isEqualTo("running");
 
-        assertUpdate("UPDATE aws.ec2.instances SET state = ROW(16, 'running') WHERE instance_id = '%s'".formatted(instanceId), 1);
+        assertUpdate("UPDATE aws.ec2.instances SET state_name = 'running' WHERE instance_id = '%s'".formatted(instanceId), 1);
         assertThat(instanceState(instanceId)).isEqualTo("running");
 
         assertQueryFails(
-                "UPDATE aws.ec2.instances SET state = ROW(NULL, 'rebooting') WHERE instance_id = '%s'".formatted(instanceId),
+                "UPDATE aws.ec2.instances SET state_name = 'rebooting' WHERE instance_id = '%s'".formatted(instanceId),
                 "Updates of ec2.instances.state column to rebooting are not supported");
         assertQueryFails(
-                "UPDATE aws.ec2.instances SET state = ROW(80, NULL) WHERE instance_id = '%s'".formatted(instanceId),
-                "Updates of ec2.instances.state column require a row with a name, like ROW\\(NULL, 'stopped'\\)");
+                "UPDATE aws.ec2.instances SET state_name = NULL WHERE instance_id = '%s'".formatted(instanceId),
+                "Updating state_name in ec2.instances to NULL is not supported");
+        assertQueryFails(
+                "UPDATE aws.ec2.instances SET state = ROW(80, 'stopped') WHERE instance_id = '%s'".formatted(instanceId),
+                "Updating state in ec2.instances is not supported, only these columns can be updated: instance_type, state_name");
         assertThat(instanceState(instanceId)).isEqualTo("running");
         assertThat(instanceState(otherInstanceId)).isEqualTo("running");
     }
@@ -167,10 +170,10 @@ final class TestAwsConnectorEmulatorWrites
         String instanceId = testData.instanceIds().getFirst();
         assertQueryFails(
                 "UPDATE aws.ec2.instances SET subnet_id = 'subnet-123' WHERE instance_id = '%s'".formatted(instanceId),
-                "Updating subnet_id in ec2.instances is not supported, only these columns can be updated: instance_type, state");
+                "Updating subnet_id in ec2.instances is not supported, only these columns can be updated: instance_type, state_name");
         assertQueryFails(
                 "UPDATE aws.ec2.instances SET instance_type = 't3.small', key_name = 'other' WHERE instance_id = '%s'".formatted(instanceId),
-                "Updating key_name in ec2.instances is not supported, only these columns can be updated: instance_type, state");
+                "Updating key_name in ec2.instances is not supported, only these columns can be updated: instance_type, state_name");
         assertQueryFails(
                 "UPDATE aws.ec2.images SET name = 'other' WHERE image_id = '%s'".formatted(IMAGE_ID),
                 "Updates are not supported for ec2.images");
