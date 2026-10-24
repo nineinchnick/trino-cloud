@@ -47,6 +47,7 @@
         <air.check.skip-pmd>true</air.check.skip-pmd>
         <air.check.skip-jacoco>true</air.check.skip-jacoco>
         <air.modernizer.java-version>${project.build.targetJdk}</air.modernizer.java-version>
+        <air.compiler.fail-warnings>true</air.compiler.fail-warnings>
 
         <air.build.jvmsize>4g</air.build.jvmsize>
         <air.test.jvm.additional-arguments>--add-modules=jdk.incubator.vector</air.test.jvm.additional-arguments>
