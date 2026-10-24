@@ -14,6 +14,7 @@
 
 package pl.net.was.cloud.aws.filters;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import io.airlift.log.Logger;
@@ -26,6 +27,7 @@ import io.trino.spi.connector.Constraint;
 import io.trino.spi.connector.ConstraintApplicationResult;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.predicate.Domain;
+import io.trino.spi.predicate.Range;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.predicate.ValueSet;
 import io.trino.spi.type.MapType;
@@ -51,6 +53,7 @@ import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
+import static io.airlift.slice.Slices.utf8Slice;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.IntegerType.INTEGER;
@@ -181,8 +184,8 @@ public final class TableFilters
             filterDomains(filter, domains).forEach((column, domain) -> {
                 switch (filter.filter().kind()) {
                     case REQUEST_MEMBER -> setMember(filter, request, domain);
-                    case EC2_FILTER -> ec2Filters.add(ec2Filter(filter.filter().target(), domain));
-                    case TAG_FILTERS -> ec2Filters.add(ec2Filter("tag:" + column.mapKey().orElseThrow(), domain));
+                    case EC2_FILTER -> ec2Filters.add(ec2Filter(filter.filter().target(), pushedValues(domain, "*")));
+                    case TAG_FILTERS -> ec2Filters.add(ec2Filter("tag:" + column.mapKey().orElseThrow(), domain.getValues().getDiscreteSet()));
                     // the partition chooses the client, so it's not a part of the request
                     case PARTITION -> {}
                 }
@@ -290,11 +293,15 @@ public final class TableFilters
         if (domain == null) {
             return Optional.empty();
         }
-        if (domain.isNullAllowed() || !domain.getValues().isDiscreteSet()) {
-            log.debug("Not pushing down filter on %s because it's not a discrete set of values: %s", filter.column().name(), domain);
+        if (domain.isNullAllowed()) {
+            log.debug("Not pushing down filter on %s because it allows nulls: %s", filter.column().name(), domain);
             return Optional.empty();
         }
-        return Optional.of(domain);
+        if (domain.getValues().isDiscreteSet() || (filter.filter().prefixes() && commonPrefix(domain).isPresent())) {
+            return Optional.of(domain);
+        }
+        log.debug("Not pushing down filter on %s because it's not a discrete set of values or a range of values with a common prefix: %s", filter.column().name(), domain);
+        return Optional.empty();
     }
 
     // the domains of the column of the filter, or of the entries of its map column
@@ -351,7 +358,7 @@ public final class TableFilters
     private static void setMember(BoundFilter filter, SdkPojo request, Domain domain)
     {
         SdkField<?> member = filter.member().orElseThrow();
-        List<Object> values = domain.getValues().getDiscreteSet();
+        List<Object> values = pushedValues(domain, "");
         if (member.marshallingType() == MarshallingType.LIST) {
             SdkField<?> valueField = member.getRequiredTrait(ListTrait.class).memberFieldInfo();
             member.set(request, values.stream()
@@ -362,6 +369,54 @@ public final class TableFilters
         // the split manager divides scans into a split for every value of a scalar member
         checkState(values.size() == 1, "Filter on %s has many values for the %s member: %s", filter.column().name(), member.memberName(), domain);
         member.set(request, sdkValue(member, values.getFirst()));
+    }
+
+    // a range of values with a common prefix is pushed down as the prefix, followed by the wildcard that matches any suffix
+    private static List<Object> pushedValues(Domain domain, String wildcard)
+    {
+        if (domain.getValues().isDiscreteSet()) {
+            return domain.getValues().getDiscreteSet();
+        }
+        return ImmutableList.of(utf8Slice(commonPrefix(domain).orElseThrow() + wildcard));
+    }
+
+    /**
+     * The longest prefix of the low bound of the range of all values that's also a prefix of all values up to the high bound.
+     */
+    @VisibleForTesting
+    static Optional<String> commonPrefix(Domain domain)
+    {
+        if (!(domain.getType() instanceof VarcharType) || domain.getValues().isNone()) {
+            return Optional.empty();
+        }
+        Range range = domain.getValues().getRanges().getSpan();
+        if (range.isLowUnbounded() || range.isHighUnbounded()) {
+            return Optional.empty();
+        }
+        String low = ((Slice) range.getLowBoundedValue()).toStringUtf8();
+        Slice high = (Slice) range.getHighBoundedValue();
+        for (int end = low.length(); end > 0; end = low.offsetByCodePoints(end, -1)) {
+            String prefix = low.substring(0, end);
+            Slice prefixSlice = utf8Slice(prefix);
+            if (high.length() >= prefixSlice.length() && high.slice(0, prefixSlice.length()).equals(prefixSlice)) {
+                return Optional.of(prefix);
+            }
+            // the range of LIKE 'prefix%' ends before the first value after all values with the prefix
+            if (!range.isHighInclusive() && successor(prefix).map(high::equals).orElse(false)) {
+                return Optional.of(prefix);
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<Slice> successor(String value)
+    {
+        int lastCodePointStart = value.offsetByCodePoints(value.length(), -1);
+        int next = value.codePointAt(lastCodePointStart) + 1;
+        if (next > Character.MAX_CODE_POINT || (next >= Character.MIN_SURROGATE && next <= Character.MAX_SURROGATE)) {
+            return Optional.empty();
+        }
+        return Optional.of(utf8Slice(value.substring(0, lastCodePointStart) + Character.toString(next)));
     }
 
     private static Object sdkValue(SdkField<?> field, Object value)
@@ -376,11 +431,11 @@ public final class TableFilters
         return value;
     }
 
-    private static Filter ec2Filter(String name, Domain domain)
+    private static Filter ec2Filter(String name, List<Object> values)
     {
         return Filter.builder()
                 .name(name)
-                .values(domain.getValues().getDiscreteSet().stream()
+                .values(values.stream()
                         .map(value -> value instanceof Slice slice ? slice.toStringUtf8() : value.toString())
                         .collect(toImmutableList()))
                 .build();

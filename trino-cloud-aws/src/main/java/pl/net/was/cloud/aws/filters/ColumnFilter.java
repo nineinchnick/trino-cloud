@@ -42,6 +42,7 @@ public final class ColumnFilter
     private final Kind kind;
     private final Optional<String> target;
     private final boolean enforced;
+    private final boolean prefixes;
     private final Optional<Supplier<List<String>>> knownValues;
     private final Optional<Supplier<List<String>>> defaultValues;
     private final Set<String> defaultValuesUnlessFiltered;
@@ -53,11 +54,15 @@ public final class ColumnFilter
         this.kind = requireNonNull(builder.kind, "kind is null");
         this.target = requireNonNull(builder.target, "target is null");
         this.enforced = builder.enforced;
+        this.prefixes = builder.prefixes;
         this.knownValues = requireNonNull(builder.knownValues, "knownValues is null");
         this.defaultValues = requireNonNull(builder.defaultValues, "defaultValues is null");
         this.defaultValuesUnlessFiltered = ImmutableSet.copyOf(builder.defaultValuesUnlessFiltered);
         this.missingValueErrorCodes = ImmutableSet.copyOf(builder.missingValueErrorCodes);
         checkArgument(knownValues.isEmpty() || defaultValues.isEmpty(), "Filter on %s has both known and default values", column);
+        // AWS returns all values with the prefix, not only the matching ones
+        checkArgument(!prefixes || !enforced, "Filter on %s pushes down prefixes, so it must be unenforced", column);
+        checkArgument(!prefixes || kind == Kind.REQUEST_MEMBER || kind == Kind.EC2_FILTER, "Filter on %s can't push down prefixes", column);
     }
 
     /**
@@ -101,6 +106,17 @@ public final class ColumnFilter
     }
 
     /**
+     * Sets the common prefix of the matching values, like the prefix of key LIKE 'prefix%', in a scalar request member.
+     * Single values are also used as prefixes, so AWS can return rows that only start with them, and Trino still applies the predicate.
+     */
+    public static ColumnFilter keyPrefix(String column, String memberName)
+    {
+        return requestMember(column, memberName)
+                .unenforced()
+                .withPrefixes();
+    }
+
+    /**
      * Chooses the client that sends the requests, like the client of a region, so every split reads a single partition.
      * Every row read from a partition has its value, so Trino doesn't apply the predicate again.
      */
@@ -113,6 +129,18 @@ public final class ColumnFilter
     {
         Builder builder = toBuilder();
         builder.enforced = false;
+        return builder.build();
+    }
+
+    /**
+     * Also pushes down ranges of values that start with the same prefix, like the range of LIKE 'prefix%',
+     * which request members receive as the prefix, and EC2 filters as the prefix followed by the * wildcard.
+     * The filter must be unenforced, because AWS returns all values with the prefix.
+     */
+    public ColumnFilter withPrefixes()
+    {
+        Builder builder = toBuilder();
+        builder.prefixes = true;
         return builder.build();
     }
 
@@ -175,6 +203,11 @@ public final class ColumnFilter
         return enforced;
     }
 
+    boolean prefixes()
+    {
+        return prefixes;
+    }
+
     Optional<Supplier<List<String>>> knownValues()
     {
         return knownValues;
@@ -198,6 +231,7 @@ public final class ColumnFilter
     private Builder toBuilder()
     {
         Builder builder = new Builder(column, kind, target, enforced);
+        builder.prefixes = prefixes;
         builder.knownValues = knownValues;
         builder.defaultValues = defaultValues;
         builder.defaultValuesUnlessFiltered = defaultValuesUnlessFiltered;
@@ -219,6 +253,7 @@ public final class ColumnFilter
         private final Kind kind;
         private final Optional<String> target;
         private boolean enforced;
+        private boolean prefixes;
         private Optional<Supplier<List<String>>> knownValues = Optional.empty();
         private Optional<Supplier<List<String>>> defaultValues = Optional.empty();
         private Set<String> defaultValuesUnlessFiltered = ImmutableSet.of();

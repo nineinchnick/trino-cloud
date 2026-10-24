@@ -503,6 +503,39 @@ final class TestAwsConnectorEmulator
                 "VALUES 10");
     }
 
+    // the live keys are key-00000 to key-01099, and the deleted keys are key-01100 to key-02199
+    @Test
+    void testKeyPrefixPushdown()
+    {
+        String objects = "SELECT key FROM aws.s3.objects WHERE bucket_name = '%s' AND key LIKE 'key-0001%%'".formatted(MANY_OBJECTS_BUCKET);
+        assertThat(query(objects))
+                .isNotFullyPushedDown(FilterNode.class)
+                .matches(IntStream.range(10, 20)
+                        .mapToObj("VARCHAR 'key-000%d'"::formatted)
+                        .collect(joining(", ", "VALUES ", "")));
+        assertInputRows(objects, 10);
+        assertInputRows("SELECT key FROM aws.s3.objects WHERE bucket_name = '%s' AND key >= 'key-0002' AND key < 'key-0003'".formatted(MANY_OBJECTS_BUCKET), 10);
+        assertInputRows("SELECT key FROM aws.s3.objects WHERE bucket_name = '%s' AND starts_with(key, 'key-0003')".formatted(MANY_OBJECTS_BUCKET), 10);
+        // every value is listed as a prefix in a separate split
+        assertInputRows("SELECT key FROM aws.s3.objects WHERE bucket_name = '%s' AND key IN ('key-00040', 'key-00041')".formatted(MANY_OBJECTS_BUCKET), 2);
+        assertInputRows("SELECT key FROM aws.s3.object_versions WHERE bucket_name = '%s' AND key LIKE 'key-0110%%'".formatted(MANY_OBJECTS_BUCKET), 10);
+        assertInputRows("SELECT key FROM aws.s3.deleted_objects WHERE bucket_name = '%s' AND key LIKE 'key-0110%%'".formatted(MANY_OBJECTS_BUCKET), 10);
+        // the rest of the pattern after the prefix is applied by Trino
+        assertQuery("SELECT count(*) FROM aws.s3.objects WHERE bucket_name = '%s' AND key LIKE 'key-000_5'".formatted(MANY_OBJECTS_BUCKET), "VALUES 10");
+        assertInputRows("SELECT key FROM aws.s3.objects WHERE bucket_name = '%s' AND key LIKE 'key-000_5'".formatted(MANY_OBJECTS_BUCKET), 100);
+        assertQuery("SELECT key FROM aws.s3.objects WHERE bucket_name = '%s' AND key LIKE 'dir/%%'".formatted(OBJECTS_BUCKET), "VALUES 'dir/b.txt'");
+        // a single value is listed as a prefix, which also matches longer keys
+        assertQuery("SELECT key FROM aws.s3.objects WHERE bucket_name = '%s' AND key = 'key-0001'".formatted(MANY_OBJECTS_BUCKET), "SELECT 'x' WHERE false");
+    }
+
+    // Floci ignores the prefix and the region of ListBuckets, so only the results are checked
+    @Test
+    void testBucketFiltersPushdown()
+    {
+        assertQuery("SELECT name FROM aws.s3.buckets WHERE name LIKE 'trino-test-many%'", "VALUES '%s'".formatted(MANY_OBJECTS_BUCKET));
+        assertQueryReturnsEmptyResult("SELECT name FROM aws.s3.buckets WHERE bucket_region = 'eu-west-1'");
+    }
+
     @Test
     void testSingleColumnOfObjectsSpanningManyPages()
     {
