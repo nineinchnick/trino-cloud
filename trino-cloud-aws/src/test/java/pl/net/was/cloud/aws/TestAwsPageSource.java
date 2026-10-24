@@ -95,6 +95,26 @@ final class TestAwsPageSource
     }
 
     @Test
+    void testStopsReadingAtLimit()
+    {
+        AtomicInteger readRows = new AtomicInteger();
+        AwsTable table = tableBuilder()
+                .rowSource((_, _) -> Iterables.transform(objects(3 * MAX_ROWS_PER_PAGE, 1), object -> {
+                    readRows.incrementAndGet();
+                    return new SdkRow(object, Map.of("bucket_name", utf8Slice("bucket")));
+                }))
+                .build();
+        AwsPageSource pageSource = new AwsPageSource(table, new AwsTableHandle(TABLE_NAME).withLimit(MAX_ROWS_PER_PAGE + 5), List.of(table.columnHandle("key")), MemoryContext.NO_LIMIT);
+
+        List<Page> pages = readAll(pageSource);
+
+        assertThat(pages).extracting(Page::getPositionCount).containsExactly(MAX_ROWS_PER_PAGE, 5);
+        assertThat(readRows).hasValue(MAX_ROWS_PER_PAGE + 5);
+        assertThat(pageSource.getCompletedPositions()).hasValue(MAX_ROWS_PER_PAGE + 5);
+        assertThat(pageSource.isFinished()).isTrue();
+    }
+
+    @Test
     void testNoProjectedColumns()
     {
         List<Page> pages = readAll(pageSource(table(objects(MAX_ROWS_PER_PAGE + 1, 1))));

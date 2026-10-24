@@ -591,8 +591,13 @@ AWS connector error codes:
   the pages of a list operation one after another.
 - The connector doesn't provide table or column statistics, so the cost-based
   optimizer can't estimate the size of the tables.
-- Only the filters listed in [Tables](#tables) are pushed down. `LIMIT` and other
-  predicates are applied by Trino after listing all matching resources.
+- Only predicates on columns with a `Pushed down` comment are pushed down, see
+  [Pushed-down filters](#pushed-down-filters). Other predicates are applied by
+  Trino after listing all matching resources.
+- `LIMIT` stops listing resources after reading enough rows only when Trino
+  doesn't have to apply any predicates after the scan, like when all predicates
+  are on IDs, `bucket_name` or `region`. AWS still returns whole pages of
+  results, like up to 1000 S3 keys, and every split reads up to the limit.
 - Every query lists the resources again, there is no caching.
 
 # Build

@@ -32,6 +32,7 @@ import io.trino.spi.connector.ConnectorTableMetadata;
 import io.trino.spi.connector.ConnectorTableVersion;
 import io.trino.spi.connector.Constraint;
 import io.trino.spi.connector.ConstraintApplicationResult;
+import io.trino.spi.connector.LimitApplicationResult;
 import io.trino.spi.connector.RelationColumnsMetadata;
 import io.trino.spi.connector.RetryMode;
 import io.trino.spi.connector.RowChangeParadigm;
@@ -309,7 +310,27 @@ public class AwsMetadata
             Constraint constraint)
     {
         AwsTableHandle tableHandle = (AwsTableHandle) table;
+        // the limit is applied while reading rows, so it would be applied before the filter
+        if (tableHandle.limit().isPresent()) {
+            return Optional.empty();
+        }
         AwsTable awsTable = tables.require(tableHandle.schemaTableName());
         return awsTable.filters().applyFilter(tableHandle, constraint);
+    }
+
+    /**
+     * Every split stops reading rows from AWS after reaching the limit, so the engine still applies it to the rows of all splits.
+     */
+    @Override
+    public Optional<LimitApplicationResult<ConnectorTableHandle>> applyLimit(
+            ConnectorSession session,
+            ConnectorTableHandle table,
+            long limit)
+    {
+        AwsTableHandle tableHandle = (AwsTableHandle) table;
+        if (tableHandle.limit().isPresent() && tableHandle.limit().orElseThrow() <= limit) {
+            return Optional.empty();
+        }
+        return Optional.of(new LimitApplicationResult<>(tableHandle.withLimit(limit), false, false));
     }
 }
