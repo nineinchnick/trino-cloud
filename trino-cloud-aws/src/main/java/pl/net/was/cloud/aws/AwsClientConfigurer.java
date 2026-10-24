@@ -15,10 +15,17 @@
 package pl.net.was.cloud.aws;
 
 import com.google.inject.Inject;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.awscore.client.builder.AwsClientBuilder;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.regions.providers.DefaultAwsRegionProviderChain;
+import software.amazon.awssdk.services.sts.StsClient;
+import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
 
 import java.net.URI;
 import java.util.Optional;
@@ -30,27 +37,28 @@ public class AwsClientConfigurer
 {
     private final Region region;
     private final Optional<URI> endpoint;
+    private final AwsCredentialsProvider credentialsProvider;
 
     @Inject
     public AwsClientConfigurer(AwsConfig config)
     {
         this.region = resolveRegion(config);
         this.endpoint = config.getEndpoint();
+        this.credentialsProvider = createCredentialsProvider(config, region, endpoint);
     }
 
     public <B extends AwsClientBuilder<B, ?>> B configure(B builder)
     {
-        builder.region(region);
-        endpoint.ifPresent(builder::endpointOverride);
-        return builder;
+        return configureRegionAndEndpoint(builder, region, endpoint)
+                .credentialsProvider(credentialsProvider);
     }
 
     private static Region resolveRegion(AwsConfig config)
     {
-        String regionName = config.getRegion().orElseGet(AwsClientConfigurer::defaultRegionName);
+        String regionName = config.getRegion().orElseGet(() -> defaultRegionName(config.getProfile()));
         Region region = Region.of(regionName);
         checkArgument(Region.regions().contains(region),
-                "Unknown AWS region '%s' in aws.region, expected one of: %s",
+                "Unknown AWS region '%s', set aws.region to one of: %s",
                 regionName,
                 Region.regions().stream()
                         .map(Region::id)
@@ -59,10 +67,11 @@ public class AwsClientConfigurer
         return region;
     }
 
-    private static String defaultRegionName()
+    private static String defaultRegionName(Optional<String> profile)
     {
         try {
             return DefaultAwsRegionProviderChain.builder()
+                    .profileName(profile.orElse(null))
                     .build()
                     .getRegion()
                     .id();
@@ -70,5 +79,43 @@ public class AwsClientConfigurer
         catch (SdkClientException e) {
             throw new IllegalStateException("aws.region is not set and the AWS SDK default region provider chain could not resolve a region", e);
         }
+    }
+
+    private static AwsCredentialsProvider createCredentialsProvider(AwsConfig config, Region region, Optional<URI> endpoint)
+    {
+        AwsCredentialsProvider sourceCredentialsProvider = createSourceCredentialsProvider(config);
+        if (config.getIamRole().isEmpty()) {
+            return sourceCredentialsProvider;
+        }
+        StsClient stsClient = configureRegionAndEndpoint(StsClient.builder(), region, endpoint)
+                .credentialsProvider(sourceCredentialsProvider)
+                .build();
+        return StsAssumeRoleCredentialsProvider.builder()
+                .refreshRequest(request -> request
+                        .roleArn(config.getIamRole().get())
+                        .roleSessionName(config.getRoleSessionName())
+                        .externalId(config.getExternalId().orElse(null)))
+                .stsClient(stsClient)
+                .build();
+    }
+
+    private static AwsCredentialsProvider createSourceCredentialsProvider(AwsConfig config)
+    {
+        if (config.getAccessKey().isPresent() && config.getSecretKey().isPresent()) {
+            return StaticCredentialsProvider.create(AwsBasicCredentials.create(config.getAccessKey().get(), config.getSecretKey().get()));
+        }
+        if (config.getProfile().isPresent()) {
+            return ProfileCredentialsProvider.builder()
+                    .profileName(config.getProfile().get())
+                    .build();
+        }
+        return DefaultCredentialsProvider.builder().build();
+    }
+
+    private static <B extends AwsClientBuilder<B, ?>> B configureRegionAndEndpoint(B builder, Region region, Optional<URI> endpoint)
+    {
+        builder.region(region);
+        endpoint.ifPresent(builder::endpointOverride);
+        return builder;
     }
 }

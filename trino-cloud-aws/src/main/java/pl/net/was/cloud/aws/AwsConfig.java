@@ -16,7 +16,10 @@ package pl.net.was.cloud.aws;
 
 import io.airlift.configuration.Config;
 import io.airlift.configuration.ConfigDescription;
+import io.airlift.configuration.ConfigSecuritySensitive;
 import io.airlift.configuration.LegacyConfig;
+import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.NotBlank;
 
 import java.net.URI;
 import java.util.Optional;
@@ -25,6 +28,12 @@ public class AwsConfig
 {
     private String region;
     private URI endpoint;
+    private String accessKey;
+    private String secretKey;
+    private String profile;
+    private String iamRole;
+    private String externalId;
+    private String roleSessionName = "trino-cloud";
 
     public Optional<String> getRegion()
     {
@@ -51,5 +60,103 @@ public class AwsConfig
     {
         this.endpoint = endpoint;
         return this;
+    }
+
+    public Optional<String> getAccessKey()
+    {
+        return Optional.ofNullable(accessKey);
+    }
+
+    @Config("aws.access-key")
+    @ConfigDescription("AWS access key ID, used together with aws.secret-key instead of the AWS SDK default credentials provider chain")
+    public AwsConfig setAccessKey(String accessKey)
+    {
+        this.accessKey = accessKey;
+        return this;
+    }
+
+    public Optional<String> getSecretKey()
+    {
+        return Optional.ofNullable(secretKey);
+    }
+
+    @Config("aws.secret-key")
+    @ConfigSecuritySensitive
+    @ConfigDescription("AWS secret access key, used together with aws.access-key")
+    public AwsConfig setSecretKey(String secretKey)
+    {
+        this.secretKey = secretKey;
+        return this;
+    }
+
+    public Optional<String> getProfile()
+    {
+        return Optional.ofNullable(profile);
+    }
+
+    @Config("aws.profile")
+    @ConfigDescription("Name of a profile from the AWS shared configuration and credentials files")
+    public AwsConfig setProfile(String profile)
+    {
+        this.profile = profile;
+        return this;
+    }
+
+    public Optional<String> getIamRole()
+    {
+        return Optional.ofNullable(iamRole);
+    }
+
+    @Config("aws.iam-role")
+    @ConfigDescription("ARN of an IAM role to assume using STS")
+    public AwsConfig setIamRole(String iamRole)
+    {
+        this.iamRole = iamRole;
+        return this;
+    }
+
+    public Optional<String> getExternalId()
+    {
+        return Optional.ofNullable(externalId);
+    }
+
+    @Config("aws.external-id")
+    @ConfigDescription("External ID required by the trust policy of the role set in aws.iam-role")
+    public AwsConfig setExternalId(String externalId)
+    {
+        this.externalId = externalId;
+        return this;
+    }
+
+    @NotBlank
+    public String getRoleSessionName()
+    {
+        return roleSessionName;
+    }
+
+    @Config("aws.role-session-name")
+    @ConfigDescription("Session name used when assuming the role set in aws.iam-role")
+    public AwsConfig setRoleSessionName(String roleSessionName)
+    {
+        this.roleSessionName = roleSessionName;
+        return this;
+    }
+
+    @AssertTrue(message = "aws.access-key and aws.secret-key must be set together")
+    public boolean isStaticCredentialsComplete()
+    {
+        return (accessKey == null) == (secretKey == null);
+    }
+
+    @AssertTrue(message = "aws.profile cannot be set together with aws.access-key and aws.secret-key")
+    public boolean isProfileExclusiveWithStaticCredentials()
+    {
+        return profile == null || (accessKey == null && secretKey == null);
+    }
+
+    @AssertTrue(message = "aws.external-id can only be set together with aws.iam-role")
+    public boolean isExternalIdUsedWithIamRole()
+    {
+        return externalId == null || iamRole != null;
     }
 }
