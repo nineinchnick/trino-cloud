@@ -50,7 +50,7 @@ public class AwsRecordSetProvider
             List<? extends ColumnHandle> list)
     {
         AwsTableHandle tableHandle = (AwsTableHandle) table;
-        AwsTable awsTable = tables.require(tableHandle.getSchemaTableName());
+        AwsTable awsTable = tables.require(tableHandle.schemaTableName());
         List<AwsColumnHandle> restColumnHandles = list
                 .stream()
                 .map(c -> (AwsColumnHandle) c)

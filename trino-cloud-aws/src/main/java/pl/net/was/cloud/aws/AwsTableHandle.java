@@ -14,144 +14,49 @@
 
 package pl.net.was.cloud.aws;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ConnectorTableHandle;
 import io.trino.spi.connector.SchemaTableName;
-import io.trino.spi.connector.SortItem;
 import io.trino.spi.predicate.TupleDomain;
 
-import java.util.List;
-import java.util.Optional;
+import java.util.OptionalLong;
 
-public class AwsTableHandle
-        implements ConnectorTableHandle, Cloneable
+import static com.google.common.base.MoreObjects.toStringHelper;
+import static java.util.Objects.requireNonNull;
+
+public record AwsTableHandle(SchemaTableName schemaTableName, TupleDomain<ColumnHandle> constraint, OptionalLong limit)
+        implements ConnectorTableHandle
 {
-    private final SchemaTableName schemaTableName;
-    private TupleDomain<ColumnHandle> constraint = TupleDomain.none();
-    private int offset;
-    private int limit = Integer.MAX_VALUE;
-    private int pageIncrement = 1;
-    private List<SortItem> sortOrder;
-    private Optional<List<ColumnHandle>> updatedColumns = Optional.empty();
+    public AwsTableHandle
+    {
+        requireNonNull(schemaTableName, "schemaTableName is null");
+        requireNonNull(constraint, "constraint is null");
+        requireNonNull(limit, "limit is null");
+    }
 
     public AwsTableHandle(SchemaTableName schemaTableName)
     {
-        this.schemaTableName = schemaTableName;
+        this(schemaTableName, TupleDomain.all(), OptionalLong.empty());
     }
 
-    @JsonCreator
-    public AwsTableHandle(
-            @JsonProperty("schemaTableName") SchemaTableName schemaTableName,
-            @JsonProperty("constraint") TupleDomain<ColumnHandle> constraint,
-            @JsonProperty("offset") int offset,
-            @JsonProperty("limit") int limit,
-            @JsonProperty("pageIncrement") int pageIncrement,
-            @JsonProperty("sortOrder") List<SortItem> sortOrder,
-            @JsonProperty("updatedColumns") List<ColumnHandle> updatedColumns)
+    public AwsTableHandle withConstraint(TupleDomain<ColumnHandle> constraint)
     {
-        this.schemaTableName = schemaTableName;
-        this.constraint = constraint;
-        this.offset = offset;
-        this.limit = limit;
-        this.pageIncrement = pageIncrement;
-        this.sortOrder = sortOrder;
-        this.updatedColumns = Optional.ofNullable(updatedColumns);
+        return new AwsTableHandle(schemaTableName, constraint, limit);
+    }
+
+    public AwsTableHandle withLimit(long limit)
+    {
+        return new AwsTableHandle(schemaTableName, constraint, OptionalLong.of(limit));
     }
 
     @Override
     public String toString()
     {
-        return schemaTableName.getTableName();
-    }
-
-    @JsonProperty("schemaTableName")
-    public SchemaTableName getSchemaTableName()
-    {
-        return schemaTableName;
-    }
-
-    @JsonProperty("constraint")
-    public TupleDomain<ColumnHandle> getConstraint()
-    {
-        return constraint;
-    }
-
-    @JsonProperty("offset")
-    public int getOffset()
-    {
-        return offset;
-    }
-
-    @JsonProperty("limit")
-    public int getLimit()
-    {
-        return limit;
-    }
-
-    @JsonProperty("pageIncrement")
-    public int getPageIncrement()
-    {
-        return pageIncrement;
-    }
-
-    @JsonProperty("sortOrder")
-    public Optional<List<SortItem>> getSortOrder()
-    {
-        return Optional.ofNullable(sortOrder);
-    }
-
-    @JsonProperty("updatedColumns")
-    public Optional<List<ColumnHandle>> getUpdatedColumns()
-    {
-        return updatedColumns;
-    }
-
-    @Override
-    public AwsTableHandle clone()
-    {
-        try {
-            return (AwsTableHandle) super.clone();
-        }
-        catch (CloneNotSupportedException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    public AwsTableHandle cloneWithLimit(int limit)
-    {
-        AwsTableHandle tableHandle = this.clone();
-        tableHandle.limit = limit;
-        return tableHandle;
-    }
-
-    public AwsTableHandle cloneWithOffset(int offset, int pageIncrement)
-    {
-        AwsTableHandle tableHandle = this.clone();
-        tableHandle.offset = offset;
-        tableHandle.pageIncrement = pageIncrement;
-        return tableHandle;
-    }
-
-    public AwsTableHandle cloneWithConstraint(TupleDomain<ColumnHandle> constraint)
-    {
-        AwsTableHandle tableHandle = this.clone();
-        tableHandle.constraint = constraint;
-        return tableHandle;
-    }
-
-    public AwsTableHandle cloneWithSortOrder(List<SortItem> sortOrder)
-    {
-        AwsTableHandle tableHandle = this.clone();
-        tableHandle.sortOrder = sortOrder;
-        return tableHandle;
-    }
-
-    public AwsTableHandle cloneWithUpdatedColumns(List<ColumnHandle> updatedColumns)
-    {
-        AwsTableHandle tableHandle = this.clone();
-        tableHandle.updatedColumns = Optional.ofNullable(updatedColumns);
-        return tableHandle;
+        return toStringHelper(this)
+                .omitNullValues()
+                .add("table", schemaTableName)
+                .add("constraint", constraint.isAll() ? null : constraint)
+                .add("limit", limit.isPresent() ? limit.orElseThrow() : null)
+                .toString();
     }
 }

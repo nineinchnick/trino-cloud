@@ -65,7 +65,7 @@ public interface FilterApplier
             return Optional.empty();
         }
 
-        TupleDomain<ColumnHandle> currentConstraint = table.getConstraint();
+        TupleDomain<ColumnHandle> currentConstraint = table.constraint();
 
         boolean found = false;
         for (Map.Entry<String, FilterType> entry : supportedColumnFilters.entrySet()) {
@@ -103,7 +103,7 @@ public interface FilterApplier
         }
 
         return Optional.of(new ConstraintApplicationResult<>(
-                table.cloneWithConstraint(currentConstraint),
+                table.withConstraint(currentConstraint),
                 summary,
                 constraint.getExpression(),
                 true));

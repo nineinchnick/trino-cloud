@@ -184,7 +184,7 @@ public class AwsTables
                         new SchemaTableName("s3", table),
                         columns(List.of(new ColumnMetadata("bucket_name", VARCHAR)), sdkFields))
                 .rowSource((awsTable, handle) -> {
-                    String bucketName = (String) awsTable.requireFilterApplier().getFilter(awsTable.columnHandle("bucket_name"), handle.getConstraint());
+                    String bucketName = (String) awsTable.requireFilterApplier().getFilter(awsTable.columnHandle("bucket_name"), handle.constraint());
                     requirePredicate(bucketName, awsTable.name() + ".bucket_name");
                     return encodeRows(rows.apply(bucketName), List.of(_ -> bucketName));
                 })
@@ -200,9 +200,9 @@ public class AwsTables
     private static Iterable<List<?>> images(Ec2Client ec2, AwsTable table, AwsTableHandle handle)
     {
         FilterApplier filter = table.requireFilterApplier();
-        String imageId = (String) filter.getFilter(table.columnHandle("image_id"), handle.getConstraint());
-        String name = (String) filter.getFilter(table.columnHandle("name"), handle.getConstraint());
-        String owner = (String) filter.getFilter(table.columnHandle("owner_id"), handle.getConstraint());
+        String imageId = (String) filter.getFilter(table.columnHandle("image_id"), handle.constraint());
+        String name = (String) filter.getFilter(table.columnHandle("name"), handle.constraint());
+        String owner = (String) filter.getFilter(table.columnHandle("owner_id"), handle.constraint());
         DescribeImagesRequest.Builder request = DescribeImagesRequest.builder();
         if (imageId != null) {
             request.imageIds(imageId);
@@ -213,7 +213,7 @@ public class AwsTables
         if (owner != null) {
             request.owners(owner);
         }
-        if (imageId == null && name == null && owner == null && handle.getLimit() == Integer.MAX_VALUE) {
+        if (imageId == null && name == null && owner == null && handle.limit().isEmpty()) {
             throw new TrinoException(INVALID_ROW_FILTER, "Missing a limit or constraint for image_id, name, or owner_id");
         }
         return encodeRows(
@@ -227,7 +227,7 @@ public class AwsTables
 
     private static Iterable<List<?>> instances(Ec2Client ec2, AwsTable table, AwsTableHandle handle)
     {
-        String instanceId = (String) table.requireFilterApplier().getFilter(table.columnHandle("instance_id"), handle.getConstraint());
+        String instanceId = (String) table.requireFilterApplier().getFilter(table.columnHandle("instance_id"), handle.constraint());
         DescribeInstancesRequest.Builder request = DescribeInstancesRequest.builder();
         if (instanceId != null) {
             request.instanceIds(instanceId);
