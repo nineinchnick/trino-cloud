@@ -31,10 +31,12 @@ public class SnapshotFilter
                 "owner_id", FilterType.EQUAL);
     }
 
-    // owners can be given as aliases, like self or amazon, but the owner_id column always holds account IDs
+    // owners can be given as aliases, like self or amazon, but the owner_id column always holds account IDs.
+    // EC2 filter values treat * and ? as wildcards, so the volume ID filter can match more snapshots than requested.
+    // AWS matches snapshot IDs exactly, but Trino still checks them, so the row source can use either the parameter or the filter.
     @Override
     public Set<String> getUnenforcedFilters()
     {
-        return Set.of("owner_id");
+        return Set.of("owner_id", "snapshot_id", "volume_id");
     }
 }
