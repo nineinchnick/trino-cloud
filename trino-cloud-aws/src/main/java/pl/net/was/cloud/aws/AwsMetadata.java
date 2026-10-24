@@ -262,7 +262,7 @@ public class AwsMetadata
             ConnectorSession connectorSession,
             ConnectorTableHandle connectorTableHandle)
     {
-        AwsTableHandle tableHandle = Types.checkType(connectorTableHandle, AwsTableHandle.class, "tableHandle");
+        AwsTableHandle tableHandle = (AwsTableHandle) connectorTableHandle;
         SchemaTableName schemaTableName = tableHandle.getSchemaTableName();
         return new ConnectorTableMetadata(
                 schemaTableName,
@@ -303,7 +303,7 @@ public class AwsMetadata
             ConnectorTableHandle connectorTableHandle,
             ColumnHandle columnHandle)
     {
-        AwsColumnHandle restColumnHandle = Types.checkType(columnHandle, AwsColumnHandle.class, "columnHandle");
+        AwsColumnHandle restColumnHandle = (AwsColumnHandle) columnHandle;
         return new ColumnMetadata(restColumnHandle.getName(), restColumnHandle.getType());
     }
 
@@ -339,7 +339,7 @@ public class AwsMetadata
         if (retryMode != RetryMode.NO_RETRIES) {
             throw new TrinoException(NOT_SUPPORTED, "This connector does not support query retries");
         }
-        AwsTableHandle awsTableHandle = Types.checkType(tableHandle, AwsTableHandle.class, "tableHandle");
+        AwsTableHandle awsTableHandle = (AwsTableHandle) tableHandle;
         List<AwsColumnHandle> columnHandles = columns.stream()
                 .map(AwsColumnHandle.class::cast)
                 .collect(toImmutableList());
@@ -387,7 +387,7 @@ public class AwsMetadata
         if (retryMode != RetryMode.NO_RETRIES) {
             throw new TrinoException(NOT_SUPPORTED, "This connector does not support query retries");
         }
-        AwsTableHandle awsTableHandle = Types.checkType(tableHandle, AwsTableHandle.class, "tableHandle");
+        AwsTableHandle awsTableHandle = (AwsTableHandle) tableHandle;
         if (!primaryKeys.containsKey(awsTableHandle.getSchemaTableName())) {
             throw new TrinoException(StandardErrorCode.NOT_SUPPORTED, format("Deletes and updates are not supported for %s", awsTableHandle.getSchemaTableName()));
         }
