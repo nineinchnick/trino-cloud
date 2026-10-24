@@ -26,15 +26,19 @@ import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.predicate.ValueSet;
 import io.trino.spi.type.StandardTypes;
 import io.trino.spi.type.TimeZoneKey;
+import io.trino.spi.type.VarcharType;
 import pl.net.was.cloud.aws.AwsColumnHandle;
 import pl.net.was.cloud.aws.AwsTableHandle;
 
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.trino.spi.type.DateTimeEncoding.unpackMillisUtc;
 import static io.trino.spi.type.DateTimeEncoding.unpackZoneKey;
 import static io.trino.spi.type.Timestamps.MILLISECONDS_PER_SECOND;
@@ -179,6 +183,23 @@ public interface FilterApplier
             case StandardTypes.BIGINT, StandardTypes.INTEGER -> domain.getSingleValue();
             default -> throw new IllegalStateException("Unexpected constraint for " + column.name() + "(" + column.type().getBaseName() + ")");
         };
+    }
+
+    /**
+     * Returns all values of an equality or IN-list filter, or an empty list if there's no filter on the column.
+     */
+    default List<String> getFilterValues(AwsColumnHandle column, TupleDomain<ColumnHandle> constraint)
+    {
+        checkArgument(column.type() instanceof VarcharType, "Column %s is not a varchar: %s", column.name(), column.type());
+        Domain domain = constraint.getDomains()
+                .map(domains -> domains.get(column))
+                .orElse(null);
+        if (domain == null) {
+            return List.of();
+        }
+        return domain.getValues().getDiscreteSet().stream()
+                .map(value -> ((Slice) value).toStringUtf8())
+                .collect(toImmutableList());
     }
 
     default ZonedDateTime fromTrinoTimestamp(long timestampWithTimeZone)
