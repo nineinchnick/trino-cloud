@@ -163,10 +163,9 @@ final class TestAwsConnectorEmulator
     @Test
     void testNullStringColumns()
     {
-        // TODO #287 missing values should be NULL instead of empty strings
         assertQuery(
-                "SELECT platform FROM aws.ec2.instances WHERE instance_id = '%s'".formatted(testData.instanceIds().getFirst()),
-                "VALUES ''");
+                "SELECT platform IS NULL FROM aws.ec2.instances WHERE instance_id = '%s'".formatted(testData.instanceIds().getFirst()),
+                "VALUES true");
     }
 
     @Test
