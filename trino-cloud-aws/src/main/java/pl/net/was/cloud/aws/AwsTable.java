@@ -19,6 +19,7 @@ import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.SchemaTableName;
 import pl.net.was.cloud.aws.filters.FilterApplier;
 import software.amazon.awssdk.awscore.AwsRequest;
+import software.amazon.awssdk.core.exception.SdkException;
 
 import java.util.List;
 import java.util.Map;
@@ -93,7 +94,12 @@ public final class AwsTable
 
     public Iterable<List<?>> rows(AwsTableHandle table)
     {
-        return rowSource.rows(this, table);
+        try {
+            return rowSource.rows(this, table);
+        }
+        catch (SdkException e) {
+            throw AwsErrors.translate(e);
+        }
     }
 
     public FilterApplier requireFilterApplier()
