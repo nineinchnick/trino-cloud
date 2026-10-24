@@ -56,7 +56,7 @@ public class AwsMergeSink
         super(table, ec2, s3);
 
         this.ec2 = requireNonNull(ec2, "ec2 is null");
-        this.deleters = new ImmutableMap.Builder<String, BiConsumer<Block, Integer>>()
+        this.deleters = ImmutableMap.<String, BiConsumer<Block, Integer>>builder()
                 .put("ec2.images", (rowIds, pos) -> ec2.deregisterImage(DeregisterImageRequest.builder()
                         .imageId(getStringRowId(rowIds, pos, metadata.getRowIdHandle(new SchemaTableName("ec2", "images"))))
                         .build()))
@@ -65,10 +65,10 @@ public class AwsMergeSink
                                 .instanceIds(
                                         getStringRowId(rowIds, pos, metadata.getRowIdHandle(new SchemaTableName("ec2", "instances"))))
                                 .build()))
-                .build();
-        this.updaters = new ImmutableMap.Builder<String, BiConsumer<Page, Integer>>()
+                .buildOrThrow();
+        this.updaters = ImmutableMap.<String, BiConsumer<Page, Integer>>builder()
                 .put("ec2.instances", this::updateInstance)
-                .build();
+                .buildOrThrow();
     }
 
     @Override

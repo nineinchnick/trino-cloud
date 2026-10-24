@@ -55,10 +55,10 @@ public class AwsPageSink
     protected final String tableName;
 
     protected final Map<String, BiConsumer<Page, Integer>> inserters;
-    private final Map<String, Map<String, SdkField<?>>> fields = new ImmutableMap.Builder<String, Map<String, SdkField<?>>>()
+    private final Map<String, Map<String, SdkField<?>>> fields = ImmutableMap.<String, Map<String, SdkField<?>>>builder()
             .put("ec2.images", getFieldsMap(CreateImageRequest.builder()))
             .put("ec2.instances", getFieldsMap(RunInstancesRequest.builder()))
-            .build();
+            .buildOrThrow();
 
     private Map<String, SdkField<?>> getFieldsMap(SdkPojo request)
     {
@@ -79,11 +79,11 @@ public class AwsPageSink
         this.table = table;
         this.tableName = table.getTableHandle().getSchemaTableName().toString();
 
-        this.inserters = new ImmutableMap.Builder<String, BiConsumer<Page, Integer>>()
+        this.inserters = ImmutableMap.<String, BiConsumer<Page, Integer>>builder()
                 .put("ec2.images", (page, pos) -> ec2.createImage((CreateImageRequest) setFields(page, pos, CreateImageRequest.builder()).build()))
                 .put("ec2.instances", (page, pos) -> ec2.runInstances((RunInstancesRequest) setFields(page, pos, RunInstancesRequest.builder().minCount(1).maxCount(1)).build()))
                 .put("s3.buckets", (page, pos) -> s3.createBucket((CreateBucketRequest) setFields(page, pos, CreateBucketRequest.builder()).build()))
-                .build();
+                .buildOrThrow();
     }
 
     @Override
@@ -125,7 +125,7 @@ public class AwsPageSink
             VARCHAR.getSlice(block, position).toStringUtf8();
             Object value = getValue(table.getColumnTypes().get(channel), position, block);
             if (columnName.equals("tags")) {
-                ImmutableList.Builder<Tag> tags = new ImmutableList.Builder<>();
+                ImmutableList.Builder<Tag> tags = ImmutableList.builder();
                 Block array = (Block) value;
                 MapType tagType = new MapType(VARCHAR, VARCHAR, new TypeOperators());
                 for (int i = 0; i < array.getPositionCount(); i++) {

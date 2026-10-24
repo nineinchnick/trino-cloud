@@ -43,12 +43,11 @@
         <project.build.targetJdk>25</project.build.targetJdk>
         <air.java.version>25</air.java.version>
 
-        <air.check.skip-extended>true</air.check.skip-extended>
-        <air.check.skip-license>false</air.check.skip-license>
-        <air.check.skip-airstyle>false</air.check.skip-airstyle>
+        <air.check.skip-spotbugs>true</air.check.skip-spotbugs>
+        <air.check.skip-pmd>true</air.check.skip-pmd>
+        <air.check.skip-jacoco>true</air.check.skip-jacoco>
+        <air.modernizer.java-version>${project.build.targetJdk}</air.modernizer.java-version>
 
-        <air.check.fail-checkstyle>true</air.check.fail-checkstyle>
-        <air.check.skip-checkstyle>false</air.check.skip-checkstyle>
         <air.build.jvmsize>4g</air.build.jvmsize>
         <air.test.jvm.additional-arguments>--add-modules=jdk.incubator.vector</air.test.jvm.additional-arguments>
 
@@ -145,6 +144,17 @@
         <pluginManagement>
             <plugins>
                 <plugin>
+                    <groupId>org.gaul</groupId>
+                    <artifactId>modernizer-maven-plugin</artifactId>
+                    <configuration>
+                        <violationsFiles>
+                            <violationsFile>${air.main.basedir}/.mvn/modernizer/violations.xml</violationsFile>
+                        </violationsFiles>
+                        <exclusionsFile>${air.main.basedir}/.mvn/modernizer/exclusions.txt</exclusionsFile>
+                    </configuration>
+                </plugin>
+
+                <plugin>
                     <groupId>ca.vanzyl.provisio.maven.plugins</groupId>
                     <artifactId>provisio-maven-plugin</artifactId>
                     <version>2.0.1</version>
@@ -184,6 +194,25 @@
                     <spiGroupId>io.trino</spiGroupId>
                     <spiArtifactId>trino-spi</spiArtifactId>
                 </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.gaul</groupId>
+                <artifactId>modernizer-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>modernizer-production-code</id>
+                        <goals>
+                            <goal>modernizer</goal>
+                        </goals>
+                        <configuration>
+                            <violationsFiles>
+                                <violationsFile>${air.main.basedir}/.mvn/modernizer/violations-production-code-only.xml</violationsFile>
+                            </violationsFiles>
+                            <includeTestClasses>false</includeTestClasses>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
 
             <plugin>
