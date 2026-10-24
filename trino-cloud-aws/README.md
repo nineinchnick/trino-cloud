@@ -620,7 +620,7 @@ Creates a deployable plugin directory and ZIP file in `trino-cloud-aws/target`
 
 An example command to run the Trino server with the aws plugin and catalog enabled,
 using the plugin built from the current checkout.
-Replace `<version>` with the project version from [pom.xml](../pom.xml), like `0.84-SNAPSHOT`,
+Replace `<version>` with the project version from [pom.xml](../pom.xml), like `1.0-SNAPSHOT`,
 and `<trino-version>` with the `dep.trino.version` property from the same file, like `483`.
 The plugin only loads in the Trino version it was built for.
 
