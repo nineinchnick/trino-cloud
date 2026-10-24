@@ -378,9 +378,9 @@ public class AwsTables
                                 .rowSource((_, _) -> sdkRows(s3.listBucketsPaginator(ListBucketsRequest.builder().build()).buckets()))
                                 .inserter(new Inserter(CreateBucketRequest::builder, request -> createBucket(s3, (CreateBucketRequest) request), bucketSetters()))
                                 .build(),
-                        bucketTable("objects", S3Object.builder().sdkFields(), bucketName -> s3.listObjectsV2Paginator(ListObjectsV2Request.builder().bucket(bucketName).build()).contents()),
-                        bucketTable("object_versions", ObjectVersion.builder().sdkFields(), bucketName -> s3.listObjectVersionsPaginator(ListObjectVersionsRequest.builder().bucket(bucketName).build()).versions()),
-                        bucketTable("deleted_objects", DeleteMarkerEntry.builder().sdkFields(), bucketName -> s3.listObjectVersionsPaginator(ListObjectVersionsRequest.builder().bucket(bucketName).build()).deleteMarkers()))
+                        bucketTable("objects", S3Object.builder().sdkFields(), (bucketName, prefix) -> s3.listObjectsV2Paginator(ListObjectsV2Request.builder().bucket(bucketName).prefix(prefix.orElse(null)).build()).contents()),
+                        bucketTable("object_versions", ObjectVersion.builder().sdkFields(), (bucketName, prefix) -> s3.listObjectVersionsPaginator(ListObjectVersionsRequest.builder().bucket(bucketName).prefix(prefix.orElse(null)).build()).versions()),
+                        bucketTable("deleted_objects", DeleteMarkerEntry.builder().sdkFields(), (bucketName, prefix) -> s3.listObjectVersionsPaginator(ListObjectVersionsRequest.builder().bucket(bucketName).prefix(prefix.orElse(null)).build()).deleteMarkers()))
                 .collect(toImmutableMap(AwsTable::name, identity()));
     }
 
@@ -514,7 +514,10 @@ public class AwsTables
         return utf8Slice(new RegionalRowId(((Slice) row.context()).toStringUtf8(), id).toString());
     }
 
-    private static AwsTable bucketTable(String table, List<SdkField<?>> sdkFields, Function<String, Iterable<? extends SdkPojo>> rows)
+    /**
+     * The rows are listed by the bucket name and the prefix of the keys, if the filter on keys has one.
+     */
+    private static AwsTable bucketTable(String table, List<SdkField<?>> sdkFields, BiFunction<String, Optional<String>, Iterable<? extends SdkPojo>> rows)
     {
         return AwsTable.builder(
                         new SchemaTableName("s3", table),
@@ -524,11 +527,12 @@ public class AwsTables
                 .rowSource((awsTable, handle) -> {
                     awsTable.requireFilterApplier().checkRequiredFilters(handle);
                     List<String> bucketNames = awsTable.requireFilterApplier().getFilterValues(awsTable.columnHandle("bucket_name"), handle.constraint());
+                    Optional<String> prefix = awsTable.requireFilterApplier().getFilterPrefix(awsTable.columnHandle("key"), handle.constraint());
                     return Iterables.concat(Lists.transform(
                             bucketNames,
                             bucketName -> {
                                 Slice context = utf8Slice(bucketName);
-                                return Iterables.transform(rows.apply(bucketName), object -> new SdkRow(object, context));
+                                return Iterables.transform(rows.apply(bucketName, prefix), object -> new SdkRow(object, context));
                             }));
                 })
                 .filterApplier(new BucketFilter())

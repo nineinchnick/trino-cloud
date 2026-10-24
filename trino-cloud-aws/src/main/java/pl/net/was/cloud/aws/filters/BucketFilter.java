@@ -26,7 +26,8 @@ public class BucketFilter
     public Map<String, FilterType> getSupportedFilters()
     {
         return ImmutableMap.of(
-                "bucket_name", FilterType.EQUAL);
+                "bucket_name", FilterType.EQUAL,
+                "key", FilterType.PREFIX);
     }
 
     @Override

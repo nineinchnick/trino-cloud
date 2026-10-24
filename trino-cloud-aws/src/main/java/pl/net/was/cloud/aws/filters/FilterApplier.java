@@ -43,6 +43,7 @@ import java.util.Set;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
+import static io.airlift.slice.Slices.utf8Slice;
 import static io.trino.spi.type.DateTimeEncoding.unpackMillisUtc;
 import static io.trino.spi.type.DateTimeEncoding.unpackZoneKey;
 import static io.trino.spi.type.Timestamps.MILLISECONDS_PER_SECOND;
@@ -52,6 +53,7 @@ import static java.lang.Math.floorMod;
 import static java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 import static pl.net.was.cloud.aws.AwsErrorCode.AWS_MISSING_PREDICATE;
 import static pl.net.was.cloud.aws.filters.FilterType.EQUAL;
+import static pl.net.was.cloud.aws.filters.FilterType.PREFIX;
 import static pl.net.was.cloud.aws.filters.MapEntryPredicates.mapEntryDomains;
 
 public interface FilterApplier
@@ -137,7 +139,8 @@ public interface FilterApplier
             // merge with other pushed down constraints
             currentConstraint = currentConstraint.intersect(newConstraint);
             found = true;
-            if (getUnenforcedFilters().contains(columnName) || !isEnforcedBy(column, summary, newConstraint)) {
+            // AWS returns all values with the prefix of a prefix filter
+            if (supportedFilter == PREFIX || getUnenforcedFilters().contains(columnName) || !isEnforcedBy(column, summary, newConstraint)) {
                 continue;
             }
             // remove from remaining constraints
@@ -203,6 +206,21 @@ public interface FilterApplier
                                                 domain.getValues().getRanges().getSpan().getLowBoundedValue())),
                                 false)));
             }
+            case PREFIX -> {
+                if (domain.getValues().isNone() || !(domain.getType() instanceof VarcharType)) {
+                    yield null;
+                }
+                if (domain.getValues().isDiscreteSet()) {
+                    yield TupleDomain.withColumnDomains(Map.of(column, domain));
+                }
+                Range span = domain.getValues().getRanges().getSpan();
+                if (commonPrefix(span).isEmpty()) {
+                    log.debug("Not pushing down filter on %s because its values don't start with the same prefix: %s", column.name(), domain);
+                    yield null;
+                }
+                // normalize the constraint into a single range, which has the same prefix
+                yield TupleDomain.withColumnDomains(Map.of(column, Domain.create(ValueSet.ofRanges(span), false)));
+            }
         };
     }
 
@@ -218,7 +236,7 @@ public interface FilterApplier
             // so that planner doesn't get stuck in a loop
             return false;
         }
-        if (supportedFilter == EQUAL) {
+        if (supportedFilter == EQUAL || supportedFilter == PREFIX) {
             // can push down only the first predicate against this column, the engine applies the remaining one
             log.debug("Not pushing down filter on %s because a different filter was already pushed down: %s", column.name(), newDomain);
             return false;
@@ -268,7 +286,7 @@ public interface FilterApplier
     }
 
     /**
-     * Returns all values of an equality or IN-list filter, or an empty list if there's no filter on the column.
+     * Returns all values of an equality or IN-list filter, or an empty list if there's no filter on the column, or it's a range of values.
      */
     default List<String> getFilterValues(AwsColumnHandle column, TupleDomain<ColumnHandle> constraint)
     {
@@ -276,12 +294,56 @@ public interface FilterApplier
         Domain domain = constraint.getDomains()
                 .map(domains -> domains.get(column))
                 .orElse(null);
-        if (domain == null) {
+        if (domain == null || !domain.getValues().isDiscreteSet()) {
             return List.of();
         }
         return domain.getValues().getDiscreteSet().stream()
                 .map(value -> ((Slice) value).toStringUtf8())
                 .collect(toImmutableList());
+    }
+
+    /**
+     * Returns the longest prefix of all values of a filter, or nothing if there's no filter on the column, or its values don't start with the same prefix.
+     */
+    default Optional<String> getFilterPrefix(AwsColumnHandle column, TupleDomain<ColumnHandle> constraint)
+    {
+        checkArgument(column.type() instanceof VarcharType, "Column %s is not a varchar: %s", column.name(), column.type());
+        return constraint.getDomains()
+                .map(domains -> domains.get(column))
+                .filter(domain -> !domain.getValues().isNone())
+                .flatMap(domain -> commonPrefix(domain.getValues().getRanges().getSpan()));
+    }
+
+    // the longest prefix of the low bound that's also a prefix of all values up to the high bound
+    private static Optional<String> commonPrefix(Range range)
+    {
+        if (range.isLowUnbounded() || range.isHighUnbounded()) {
+            return Optional.empty();
+        }
+        String low = ((Slice) range.getLowBoundedValue()).toStringUtf8();
+        Slice high = (Slice) range.getHighBoundedValue();
+        for (int end = low.length(); end > 0; end = low.offsetByCodePoints(end, -1)) {
+            String prefix = low.substring(0, end);
+            Slice prefixSlice = utf8Slice(prefix);
+            if (high.length() >= prefixSlice.length() && high.slice(0, prefixSlice.length()).equals(prefixSlice)) {
+                return Optional.of(prefix);
+            }
+            // the range of LIKE 'prefix%' ends before the first value after all values with the prefix
+            if (!range.isHighInclusive() && successor(prefix).map(high::equals).orElse(false)) {
+                return Optional.of(prefix);
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<Slice> successor(String value)
+    {
+        int lastCodePointStart = value.offsetByCodePoints(value.length(), -1);
+        int next = value.codePointAt(lastCodePointStart) + 1;
+        if (next > Character.MAX_CODE_POINT || (next >= Character.MIN_SURROGATE && next <= Character.MAX_SURROGATE)) {
+            return Optional.empty();
+        }
+        return Optional.of(utf8Slice(value.substring(0, lastCodePointStart) + Character.toString(next)));
     }
 
     default ZonedDateTime fromTrinoTimestamp(long timestampWithTimeZone)

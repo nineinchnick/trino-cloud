@@ -17,4 +17,6 @@ package pl.net.was.cloud.aws.filters;
 public enum FilterType
 {
     EQUAL, GREATER_THAN_EQUAL,
+// equality and IN predicates, and ranges of values that start with the same prefix, like the range of a LIKE 'prefix%' predicate
+    PREFIX,
 }

@@ -404,12 +404,12 @@ WHERE owner_id = '137112412989' AND name LIKE 'al2023-ami-2023%';
 The tables in the `s3` schema list buckets in all regions, and access each
 bucket in its own region.
 
-| Table                | Description                                     | Required filters | Pushed-down filters | Supported writes |
-|----------------------|-------------------------------------------------|------------------|---------------------|------------------|
-| `s3.buckets`         | Buckets owned by the account                    |                  |                     | `INSERT`         |
-| `s3.objects`         | Current versions of objects in a bucket         | `bucket_name`    | `bucket_name`       |                  |
-| `s3.object_versions` | All versions of objects in a bucket             | `bucket_name`    | `bucket_name`       |                  |
-| `s3.deleted_objects` | Delete markers of objects in a versioned bucket | `bucket_name`    | `bucket_name`       |                  |
+| Table                | Description                                     | Required filters | Pushed-down filters  | Supported writes |
+|----------------------|-------------------------------------------------|------------------|----------------------|------------------|
+| `s3.buckets`         | Buckets owned by the account                    |                  |                      | `INSERT`         |
+| `s3.objects`         | Current versions of objects in a bucket         | `bucket_name`    | `bucket_name`, `key` |                  |
+| `s3.object_versions` | All versions of objects in a bucket             | `bucket_name`    | `bucket_name`, `key` |                  |
+| `s3.deleted_objects` | Delete markers of objects in a versioned bucket | `bucket_name`    | `bucket_name`, `key` |                  |
 
 For example, to list the largest objects in a bucket:
 
@@ -420,6 +420,13 @@ WHERE bucket_name = 'my-bucket'
 ORDER BY size DESC
 LIMIT 10;
 ```
+
+Predicates on the `key` column that only match keys starting with the same
+prefix, like `key LIKE 'logs/2024/%'`, `starts_with(key, 'logs/')`, or
+`key >= 'logs/2024' AND key < 'logs/2025'`, are pushed down as the prefix of the
+listed keys. Equality and `IN` predicates are pushed down as the longest prefix
+of all their values. Trino applies the whole predicate to the listed keys, so
+in `key LIKE 'logs/%.json'`, only the `logs/` prefix limits the listed keys.
 
 # SQL support
 

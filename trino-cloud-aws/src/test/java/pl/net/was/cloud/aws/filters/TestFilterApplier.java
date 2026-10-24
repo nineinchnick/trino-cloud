@@ -54,6 +54,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static pl.net.was.cloud.aws.filters.FilterType.EQUAL;
 import static pl.net.was.cloud.aws.filters.FilterType.GREATER_THAN_EQUAL;
+import static pl.net.was.cloud.aws.filters.FilterType.PREFIX;
 
 final class TestFilterApplier
 {
@@ -63,6 +64,9 @@ final class TestFilterApplier
     private static final Map<String, FilterType> SUPPORTED_FILTERS = Map.of("id", EQUAL, "size", GREATER_THAN_EQUAL);
     private static final Map<String, ColumnHandle> COLUMNS = Map.of("id", ID, "size", SIZE);
     private static final FilterApplier FILTER_APPLIER = () -> SUPPORTED_FILTERS;
+    private static final AwsColumnHandle KEY = new AwsColumnHandle("key", VARCHAR);
+    private static final Map<String, FilterType> PREFIX_FILTERS = Map.of("key", PREFIX);
+    private static final FilterApplier PREFIX_FILTER_APPLIER = () -> PREFIX_FILTERS;
 
     @Test
     void testPushesDownIntoUnconstrainedTable()
@@ -279,6 +283,54 @@ final class TestFilterApplier
     }
 
     @Test
+    void testPushesDownPrefix()
+    {
+        AwsTableHandle table = new AwsTableHandle(new SchemaTableName("s3", "objects"));
+        // the engine translates key LIKE 'dir/%' to a range
+        Domain like = varcharRange("dir/", "dir0");
+
+        Optional<ConstraintApplicationResult<ConnectorTableHandle>> result = PREFIX_FILTER_APPLIER.applyFilter(table, Map.of("key", KEY), PREFIX_FILTERS, new Constraint(TupleDomain.withColumnDomains(Map.of(KEY, like))));
+
+        AwsTableHandle newTable = (AwsTableHandle) result.orElseThrow().getHandle();
+        assertThat(newTable.constraint()).isEqualTo(TupleDomain.withColumnDomains(Map.of(KEY, like)));
+        assertThat(result.orElseThrow().getRemainingFilter()).isEqualTo(TupleDomain.withColumnDomains(Map.of(KEY, like)));
+        assertThat(PREFIX_FILTER_APPLIER.getFilterPrefix(KEY, newTable.constraint())).hasValue("dir/");
+        assertThat(PREFIX_FILTER_APPLIER.getFilterValues(KEY, newTable.constraint())).isEmpty();
+        // a range without a common prefix of its values would list all keys
+        assertThat(PREFIX_FILTER_APPLIER.applyFilter(table, Map.of("key", KEY), PREFIX_FILTERS, new Constraint(TupleDomain.withColumnDomains(Map.of(KEY, varcharRange("a", "c")))))).isEmpty();
+    }
+
+    @Test
+    void testPushesDownPrefixOfValues()
+    {
+        AwsTableHandle table = new AwsTableHandle(new SchemaTableName("s3", "objects"));
+        Domain values = Domain.multipleValues(VARCHAR, List.of(utf8Slice("dir/a.txt"), utf8Slice("dir/b.txt")));
+
+        AwsTableHandle newTable = (AwsTableHandle) PREFIX_FILTER_APPLIER.applyFilter(table, Map.of("key", KEY), PREFIX_FILTERS, new Constraint(TupleDomain.withColumnDomains(Map.of(KEY, values))))
+                .orElseThrow()
+                .getHandle();
+
+        assertThat(newTable.constraint()).isEqualTo(TupleDomain.withColumnDomains(Map.of(KEY, values)));
+        assertThat(PREFIX_FILTER_APPLIER.getFilterPrefix(KEY, newTable.constraint())).hasValue("dir/");
+        assertThat(PREFIX_FILTER_APPLIER.getFilterValues(KEY, newTable.constraint())).containsExactly("dir/a.txt", "dir/b.txt");
+    }
+
+    @Test
+    void testFilterPrefix()
+    {
+        assertThat(filterPrefix(Domain.singleValue(VARCHAR, utf8Slice("a.txt")))).hasValue("a.txt");
+        assertThat(filterPrefix(varcharRange("logs/2024", "logs/2025"))).hasValue("logs/2024");
+        assertThat(filterPrefix(varcharRange("logs/2024-01", "logs/2024-02"))).hasValue("logs/2024-01");
+        // the engine increments the last ASCII character of a LIKE prefix to get the high bound
+        assertThat(filterPrefix(varcharRange("diré", "dis"))).hasValue("dir");
+        assertThat(filterPrefix(Domain.create(ValueSet.ofRanges(Range.range(VARCHAR, utf8Slice("dir/"), true, utf8Slice("dir0"), true)), false))).hasValue("dir");
+        assertThat(filterPrefix(varcharRange("a", "c"))).isEmpty();
+        assertThat(filterPrefix(Domain.create(ValueSet.ofRanges(Range.greaterThanOrEqual(VARCHAR, utf8Slice("dir/"))), false))).isEmpty();
+        assertThat(filterPrefix(Domain.create(ValueSet.ofRanges(Range.lessThan(VARCHAR, utf8Slice("dir/"))), false))).isEmpty();
+        assertThat(PREFIX_FILTER_APPLIER.getFilterPrefix(KEY, TupleDomain.all())).isEmpty();
+    }
+
+    @Test
     void testPushesDownMapEntryEquality()
     {
         AwsTableHandle table = new AwsTableHandle(new SchemaTableName("ec2", "instances"));
@@ -338,6 +390,16 @@ final class TestFilterApplier
                 TupleDomain.all(),
                 equal(subscript("$operator$subscript", "Name"), varchar("a")),
                 Map.of("id", ID, "tags", TAGS)))).isEmpty();
+    }
+
+    private static Optional<String> filterPrefix(Domain domain)
+    {
+        return PREFIX_FILTER_APPLIER.getFilterPrefix(KEY, TupleDomain.withColumnDomains(Map.of(KEY, domain)));
+    }
+
+    private static Domain varcharRange(String low, String high)
+    {
+        return Domain.create(ValueSet.ofRanges(Range.range(VARCHAR, utf8Slice(low), true, utf8Slice(high), false)), false);
     }
 
     private static Optional<ConstraintApplicationResult<ConnectorTableHandle>> applyMapEntryFilter(AwsTableHandle table, ConnectorExpression expression)
