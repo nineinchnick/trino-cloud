@@ -124,7 +124,7 @@ public class AwsTables
                                 .rowSource((table, handle) -> images(ec2, table, handle))
                                 .filterApplier(new ImageFilter())
                                 .primaryKey("image_id")
-                                .inserter(new Inserter(CreateImageRequest::builder, request -> ec2.createImage((CreateImageRequest) request)))
+                                .inserter(new Inserter(CreateImageRequest::builder, request -> List.of(ec2.createImage((CreateImageRequest) request).imageId())))
                                 .deleter(rowId -> ec2.deregisterImage(DeregisterImageRequest.builder().imageId(rowId).build()))
                                 .build(),
                         simpleTable("ec2", "instance_types", InstanceTypeInfo.builder().sdkFields(), () -> ec2.describeInstanceTypesPaginator(DescribeInstanceTypesRequest.builder().build()).instanceTypes()),
@@ -134,7 +134,9 @@ public class AwsTables
                                 .rowSource((table, handle) -> instances(ec2, table, handle))
                                 .filterApplier(new InstanceFilter())
                                 .primaryKey("instance_id")
-                                .inserter(new Inserter(() -> RunInstancesRequest.builder().minCount(1).maxCount(1), request -> ec2.runInstances((RunInstancesRequest) request)))
+                                .inserter(new Inserter(
+                                        () -> RunInstancesRequest.builder().minCount(1).maxCount(1),
+                                        request -> ec2.runInstances((RunInstancesRequest) request).instances().stream().map(Instance::instanceId).toList()))
                                 .updater((rowId, columnValues) -> updateInstance(ec2, rowId, columnValues))
                                 .deleter(rowId -> ec2.terminateInstances(TerminateInstancesRequest.builder().instanceIds(rowId).build()))
                                 .build(),
@@ -162,7 +164,7 @@ public class AwsTables
                         simpleTable("ec2", "vpn_gateways", VpnGateway.builder().sdkFields(), () -> ec2.describeVpnGateways().vpnGateways()),
                         AwsTable.builder(new SchemaTableName("s3", "buckets"), columns(Bucket.builder().sdkFields()))
                                 .rowSource((_, _) -> encodeRows(s3.listBucketsPaginator(ListBucketsRequest.builder().build()).buckets(), List.of()))
-                                .inserter(new Inserter(CreateBucketRequest::builder, request -> s3.createBucket((CreateBucketRequest) request)))
+                                .inserter(new Inserter(CreateBucketRequest::builder, request -> createBucket(s3, (CreateBucketRequest) request)))
                                 .build(),
                         bucketTable("objects", S3Object.builder().sdkFields(), bucketName -> s3.listObjectsV2Paginator(ListObjectsV2Request.builder().bucket(bucketName).build()).contents()),
                         bucketTable("object_versions", ObjectVersion.builder().sdkFields(), bucketName -> s3.listObjectVersionsPaginator(ListObjectVersionsRequest.builder().bucket(bucketName).build()).versions()),
@@ -289,6 +291,12 @@ public class AwsTables
         return encodeRows(
                 Iterables.concat(Iterables.transform(reservations, Reservation::instances)),
                 List.of(o -> Slices.utf8Slice(((Instance) o).instanceId())));
+    }
+
+    private static List<String> createBucket(S3Client s3, CreateBucketRequest request)
+    {
+        s3.createBucket(request);
+        return List.of(request.bucket());
     }
 
     private static void updateInstance(Ec2Client ec2, String rowId, Function<String, Object> columnValues)
