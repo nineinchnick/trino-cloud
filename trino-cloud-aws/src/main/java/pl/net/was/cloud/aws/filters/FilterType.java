@@ -16,21 +16,5 @@ package pl.net.was.cloud.aws.filters;
 
 public enum FilterType
 {
-    EQUAL("= or IN"),
-    GREATER_THAN_EQUAL(">= or >");
-
-    private final String operators;
-
-    FilterType(String operators)
-    {
-        this.operators = operators;
-    }
-
-    /**
-     * Operators of the predicates that are pushed down, as they're named in the column comments.
-     */
-    public String operators()
-    {
-        return operators;
-    }
+    EQUAL, GREATER_THAN_EQUAL,
 }

@@ -63,9 +63,7 @@ public class AwsSplitManager
             Constraint constraint)
     {
         AwsTableHandle tableHandle = (AwsTableHandle) table;
-        // applyFilter isn't called for queries without a WHERE clause, so check the final table handle before any rows are read
         AwsTable awsTable = tables.require(tableHandle.schemaTableName());
-        awsTable.filterApplier().ifPresent(filterApplier -> filterApplier.checkRequiredFilters(tableHandle));
         return new FixedSplitSource(awsTable.filterApplier()
                 .map(filterApplier -> splits(awsTable, filterApplier, tableHandle.constraint()))
                 .orElse(ImmutableList.of(AwsConnectorSplit.WHOLE_TABLE)));

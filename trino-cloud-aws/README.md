@@ -327,12 +327,6 @@ connector pushes down equality and `IN` predicates on the columns listed in the
 rows. Predicates that allow `NULL` values are not pushed down. Trino applies all
 other predicates after reading every row returned by the AWS API operation.
 
-Tables with a **Required filters** column value fail with the
-`AWS_MISSING_PREDICATE` error code when the query doesn't have an equality or
-`IN` predicate on that column, because the AWS API can't list the resources
-without it. The comments of these columns, shown by `DESCRIBE` and in
-`information_schema.columns`, name the required filters.
-
 When a pushed-down `IN` predicate lists more values than a single AWS request
 accepts, the scan is divided into splits that run in parallel on multiple
 workers: one split per bucket for the `s3` object tables, also when they're
@@ -357,31 +351,31 @@ WHERE region IN ('eu-central-1', 'eu-west-1');
 The `region` column is not listed as a pushed-down filter in the following
 table, but it's pushed down for every table except `ec2.regions`.
 
-| Table                         | Description                            | Required filters | Pushed-down filters                    | Supported writes             |
-|-------------------------------|----------------------------------------|------------------|----------------------------------------|------------------------------|
-| `ec2.availability_zones`      | Availability Zones and Local Zones     |                  |                                        |                              |
-| `ec2.images`                  | Amazon Machine Images (AMIs)           |                  | `image_id`, `name`, `owner_id`         | `INSERT`, `DELETE`           |
-| `ec2.instance_types`          | Instance types available in the region |                  |                                        |                              |
-| `ec2.instances`               | EC2 instances                          |                  | `instance_id`                          | `INSERT`, `UPDATE`, `DELETE` |
-| `ec2.key_pairs`               | Key pairs                              |                  |                                        |                              |
-| `ec2.launch_templates`        | Launch templates                       |                  |                                        |                              |
-| `ec2.nat_gateways`            | NAT gateways                           |                  |                                        |                              |
-| `ec2.network_interfaces`      | Network interfaces                     |                  |                                        |                              |
-| `ec2.placement_groups`        | Placement groups                       |                  |                                        |                              |
-| `ec2.prefix_lists`            | Prefix lists of AWS services           |                  |                                        |                              |
-| `ec2.public_ipv4_pools`       | Public IPv4 address pools              |                  |                                        |                              |
-| `ec2.regions`                 | Regions enabled for the account        |                  |                                        |                              |
-| `ec2.route_tables`            | Route tables                           |                  |                                        |                              |
-| `ec2.security_groups`         | Security groups                        |                  |                                        |                              |
-| `ec2.snapshots`               | EBS snapshots                          |                  | `snapshot_id`, `volume_id`, `owner_id` |                              |
-| `ec2.subnets`                 | Subnets                                |                  |                                        |                              |
-| `ec2.tags`                    | Tags of all EC2 resources              |                  |                                        |                              |
-| `ec2.volumes`                 | EBS volumes                            |                  |                                        |                              |
-| `ec2.vpc_endpoints`           | VPC endpoints                          |                  |                                        |                              |
-| `ec2.vpc_peering_connections` | VPC peering connections                |                  |                                        |                              |
-| `ec2.vpcs`                    | VPCs                                   |                  |                                        |                              |
-| `ec2.vpn_connections`         | Site-to-Site VPN connections           |                  |                                        |                              |
-| `ec2.vpn_gateways`            | Virtual private gateways               |                  |                                        |                              |
+| Table                         | Description                            | Pushed-down filters                    | Supported writes             |
+|-------------------------------|----------------------------------------|----------------------------------------|------------------------------|
+| `ec2.availability_zones`      | Availability Zones and Local Zones     |                                        |                              |
+| `ec2.images`                  | Amazon Machine Images (AMIs)           | `image_id`, `name`, `owner_id`         | `INSERT`, `DELETE`           |
+| `ec2.instance_types`          | Instance types available in the region |                                        |                              |
+| `ec2.instances`               | EC2 instances                          | `instance_id`                          | `INSERT`, `UPDATE`, `DELETE` |
+| `ec2.key_pairs`               | Key pairs                              |                                        |                              |
+| `ec2.launch_templates`        | Launch templates                       |                                        |                              |
+| `ec2.nat_gateways`            | NAT gateways                           |                                        |                              |
+| `ec2.network_interfaces`      | Network interfaces                     |                                        |                              |
+| `ec2.placement_groups`        | Placement groups                       |                                        |                              |
+| `ec2.prefix_lists`            | Prefix lists of AWS services           |                                        |                              |
+| `ec2.public_ipv4_pools`       | Public IPv4 address pools              |                                        |                              |
+| `ec2.regions`                 | Regions enabled for the account        |                                        |                              |
+| `ec2.route_tables`            | Route tables                           |                                        |                              |
+| `ec2.security_groups`         | Security groups                        |                                        |                              |
+| `ec2.snapshots`               | EBS snapshots                          | `snapshot_id`, `volume_id`, `owner_id` |                              |
+| `ec2.subnets`                 | Subnets                                |                                        |                              |
+| `ec2.tags`                    | Tags of all EC2 resources              |                                        |                              |
+| `ec2.volumes`                 | EBS volumes                            |                                        |                              |
+| `ec2.vpc_endpoints`           | VPC endpoints                          |                                        |                              |
+| `ec2.vpc_peering_connections` | VPC peering connections                |                                        |                              |
+| `ec2.vpcs`                    | VPCs                                   |                                        |                              |
+| `ec2.vpn_connections`         | Site-to-Site VPN connections           |                                        |                              |
+| `ec2.vpn_gateways`            | Virtual private gateways               |                                        |                              |
 
 Without a filter on `owner_id`, the `ec2.images` and `ec2.snapshots` tables only
 list images and snapshots owned by the account of the catalog credentials,
@@ -408,12 +402,12 @@ and many AWS requests, so filter on `bucket_name` when possible. A filter on
 `bucket_name` can also choose buckets of other accounts that grant access to
 them.
 
-| Table                | Description                                     | Required filters | Pushed-down filters | Supported writes |
-|----------------------|-------------------------------------------------|------------------|---------------------|------------------|
-| `s3.buckets`         | Buckets owned by the account                    |                  |                     | `INSERT`         |
-| `s3.objects`         | Current versions of objects in a bucket         |                  | `bucket_name`       |                  |
-| `s3.object_versions` | All versions of objects in a bucket             |                  | `bucket_name`       |                  |
-| `s3.deleted_objects` | Delete markers of objects in a versioned bucket |                  | `bucket_name`       |                  |
+| Table                | Description                                     | Pushed-down filters | Supported writes |
+|----------------------|-------------------------------------------------|---------------------|------------------|
+| `s3.buckets`         | Buckets owned by the account                    |                     | `INSERT`         |
+| `s3.objects`         | Current versions of objects in a bucket         | `bucket_name`       |                  |
+| `s3.object_versions` | All versions of objects in a bucket             | `bucket_name`       |                  |
+| `s3.deleted_objects` | Delete markers of objects in a versioned bucket | `bucket_name`       |                  |
 
 For example, to list the largest objects in a bucket:
 
@@ -558,7 +552,7 @@ AWS connector error codes:
 |------------------------------|--------------|---------------------------------------------------------------------------------------------------------------------------------------|
 | `AWS_API_ERROR`              | `EXTERNAL`   | An AWS API request failed, for example because of missing IAM permissions.                                                            |
 | `AWS_THROTTLED`              | `EXTERNAL`   | AWS throttled the requests, and the retries set by `aws.retry-mode` and `aws.max-error-retries` were exhausted.                       |
-| `AWS_MISSING_PREDICATE`      | `USER_ERROR` | The query doesn't have a filter required by the table, or an `UPDATE` or `DELETE` statement doesn't filter on the primary key column. |
+| `AWS_MISSING_PREDICATE`      | `USER_ERROR` | An `UPDATE` or `DELETE` statement doesn't filter on the primary key column.                                                           |
 | `AWS_TOO_MANY_INSERTED_ROWS` | `USER_ERROR` | An `INSERT` statement inserts more rows than `aws.max-inserted-rows`.                                                                 |
 
 # Limitations

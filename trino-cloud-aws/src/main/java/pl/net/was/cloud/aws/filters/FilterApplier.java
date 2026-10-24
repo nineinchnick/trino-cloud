@@ -14,10 +14,8 @@
 
 package pl.net.was.cloud.aws.filters;
 
-import com.google.common.collect.ImmutableSet;
 import io.airlift.log.Logger;
 import io.airlift.slice.Slice;
-import io.trino.spi.TrinoException;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ConnectorTableHandle;
 import io.trino.spi.connector.Constraint;
@@ -43,7 +41,6 @@ import java.util.function.Supplier;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
-import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static io.trino.spi.type.DateTimeEncoding.unpackMillisUtc;
 import static io.trino.spi.type.DateTimeEncoding.unpackZoneKey;
 import static io.trino.spi.type.Timestamps.MILLISECONDS_PER_SECOND;
@@ -51,7 +48,6 @@ import static io.trino.spi.type.Timestamps.NANOSECONDS_PER_MILLISECOND;
 import static java.lang.Math.floorDiv;
 import static java.lang.Math.floorMod;
 import static java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME;
-import static pl.net.was.cloud.aws.AwsErrorCode.AWS_MISSING_PREDICATE;
 import static pl.net.was.cloud.aws.filters.FilterType.EQUAL;
 
 public interface FilterApplier
@@ -67,14 +63,6 @@ public interface FilterApplier
      * because AWS can return rows that don't match the filter value.
      */
     default Set<String> getUnenforcedFilters()
-    {
-        return Set.of();
-    }
-
-    /**
-     * Names of supported filters that must be pushed down, because AWS can't list rows without them.
-     */
-    default Set<String> getRequiredFilters()
     {
         return Set.of();
     }
@@ -218,21 +206,6 @@ public interface FilterApplier
         }
         // GREATER_THAN_EQUAL has a single low-bound range, so intersecting keeps the higher bound
         return true;
-    }
-
-    default void checkRequiredFilters(AwsTableHandle table)
-    {
-        Set<String> filteredColumns = table.constraint().getDomains()
-                .map(domains -> domains.keySet().stream()
-                        .map(column -> ((AwsColumnHandle) column).name())
-                        .collect(toImmutableSet()))
-                .orElse(ImmutableSet.of());
-        for (String columnName : getRequiredFilters()) {
-            if (!filteredColumns.contains(columnName)) {
-                throw new TrinoException(AWS_MISSING_PREDICATE, "Missing required filter on %s.%s. Add a condition like %2$s = '...' or %2$s IN ('...', '...') to the WHERE clause"
-                        .formatted(table.schemaTableName(), columnName));
-            }
-        }
     }
 
     default Object getFilter(AwsColumnHandle column, TupleDomain<ColumnHandle> constraint)
