@@ -24,6 +24,7 @@ import io.trino.spi.type.TypeManager;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.s3.S3Client;
 
+import static io.airlift.bootstrap.ClosingBinder.closingBinder;
 import static io.airlift.configuration.ConfigBinder.configBinder;
 import static java.util.Objects.requireNonNull;
 
@@ -55,8 +56,11 @@ public class AwsModule
         configBinder(binder).bindConfig(AwsConfig.class);
         binder.bind(AwsClientConfigurer.class).in(Scopes.SINGLETON);
 
-        binder.bind(Ec2Client.class).toProvider(Ec2ClientProvider.class);
-        binder.bind(S3Client.class).toProvider(S3ClientProvider.class);
+        binder.bind(Ec2Client.class).toProvider(Ec2ClientProvider.class).in(Scopes.SINGLETON);
+        binder.bind(S3Client.class).toProvider(S3ClientProvider.class).in(Scopes.SINGLETON);
+        closingBinder(binder).registerCloseable(Ec2Client.class);
+        closingBinder(binder).registerCloseable(S3Client.class);
+        closingBinder(binder).registerCloseable(AwsClientConfigurer.class);
     }
 
     private static class Ec2ClientProvider
