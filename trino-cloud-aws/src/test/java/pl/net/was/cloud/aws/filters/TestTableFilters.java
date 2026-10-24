@@ -96,6 +96,13 @@ final class TestTableFilters
             DescribeVpcsRequest.builder().sdkFields());
     private static final TableFilters TAG_FILTERS = TableFilters.create(TABLE_NAME, COLUMNS, List.of(tagFilters("tags")), DescribeVpcsRequest.builder().sdkFields());
     private static final AwsTableHandle TABLE = new AwsTableHandle(TABLE_NAME);
+    private static final AwsColumnHandle KEY = new AwsColumnHandle("key", VARCHAR);
+    private static final TableFilters KEY_FILTERS = TableFilters.create(
+            new SchemaTableName("s3", "objects"),
+            List.of(new ColumnMetadata("key", VARCHAR)),
+            List.of(ColumnFilter.keyPrefix("key", "Prefix")),
+            ListObjectsV2Request.builder().sdkFields());
+    private static final AwsTableHandle OBJECTS = new AwsTableHandle(new SchemaTableName("s3", "objects"));
 
     @Test
     void testPushesDownEnforcedFilter()
@@ -343,6 +350,69 @@ final class TestTableFilters
     }
 
     @Test
+    void testPushesDownKeyPrefix()
+    {
+        // the engine translates key LIKE 'dir/%' to a range
+        Domain like = varcharRange("dir/", "dir0");
+        TupleDomain<ColumnHandle> summary = TupleDomain.withColumnDomains(Map.of(KEY, like));
+
+        Optional<ConstraintApplicationResult<ConnectorTableHandle>> result = KEY_FILTERS.applyFilter(OBJECTS, new Constraint(summary));
+
+        AwsTableHandle newTable = (AwsTableHandle) result.orElseThrow().getHandle();
+        assertThat(newTable.constraint()).isEqualTo(summary);
+        // S3 lists all keys with the prefix
+        assertThat(result.orElseThrow().getRemainingFilter()).isEqualTo(summary);
+        assertThat(KEY_FILTERS.splitConstraints(newTable.constraint())).containsExactly(TupleDomain.all());
+        ListObjectsV2Request.Builder request = ListObjectsV2Request.builder();
+        KEY_FILTERS.applyTo(request, newTable.constraint());
+        assertThat(request.build().prefix()).isEqualTo("dir/");
+        // a range without a common prefix of its values would list all keys
+        assertThat(KEY_FILTERS.applyFilter(OBJECTS, new Constraint(TupleDomain.withColumnDomains(Map.of(KEY, varcharRange("a", "c")))))).isEmpty();
+    }
+
+    @Test
+    void testKeyPrefixOfEveryValue()
+    {
+        Domain keys = values("dir/a.txt", "dir/b.txt");
+
+        assertThat(KEY_FILTERS.splitConstraints(TupleDomain.withColumnDomains(Map.of(KEY, keys))))
+                .containsExactly(
+                        TupleDomain.withColumnDomains(Map.of(KEY, values("dir/a.txt"))),
+                        TupleDomain.withColumnDomains(Map.of(KEY, values("dir/b.txt"))));
+        ListObjectsV2Request.Builder request = ListObjectsV2Request.builder();
+        KEY_FILTERS.applyTo(request, TupleDomain.withColumnDomains(Map.of(KEY, values("dir/a.txt"))));
+        assertThat(request.build().prefix()).isEqualTo("dir/a.txt");
+    }
+
+    @Test
+    void testEc2FilterPrefix()
+    {
+        TableFilters filters = create(ec2Filter("state", "state").withPrefixes());
+        DescribeVpcsRequest.Builder request = DescribeVpcsRequest.builder();
+
+        filters.applyTo(request, TupleDomain.withColumnDomains(Map.of(STATE, varcharRange("avail", "availb"))));
+
+        assertThat(request.build().filters()).containsExactly(Filter.builder().name("state").values("avail*").build());
+    }
+
+    @Test
+    void testCommonPrefix()
+    {
+        assertThat(TableFilters.commonPrefix(values("a.txt"))).hasValue("a.txt");
+        assertThat(TableFilters.commonPrefix(values("dir/a.txt", "dir/b.txt"))).hasValue("dir/");
+        assertThat(TableFilters.commonPrefix(varcharRange("logs/2024", "logs/2025"))).hasValue("logs/2024");
+        assertThat(TableFilters.commonPrefix(varcharRange("logs/2024-01", "logs/2024-02"))).hasValue("logs/2024-01");
+        assertThat(TableFilters.commonPrefix(varcharRange("dir/", "dir0"))).hasValue("dir/");
+        // the engine increments the last ASCII character of a LIKE prefix to get the high bound
+        assertThat(TableFilters.commonPrefix(varcharRange("diré", "dis"))).hasValue("dir");
+        assertThat(TableFilters.commonPrefix(Domain.create(ValueSet.ofRanges(Range.range(VARCHAR, utf8Slice("dir/"), true, utf8Slice("dir0"), true)), false))).hasValue("dir");
+        assertThat(TableFilters.commonPrefix(varcharRange("a", "c"))).isEmpty();
+        assertThat(TableFilters.commonPrefix(Domain.create(ValueSet.ofRanges(Range.greaterThanOrEqual(VARCHAR, utf8Slice("dir/"))), false))).isEmpty();
+        assertThat(TableFilters.commonPrefix(Domain.create(ValueSet.ofRanges(Range.lessThan(VARCHAR, utf8Slice("dir/"))), false))).isEmpty();
+        assertThat(TableFilters.commonPrefix(Domain.singleValue(INTEGER, 1L))).isEmpty();
+    }
+
+    @Test
     void testRejectsInvalidFilters()
     {
         assertThatThrownBy(() -> create(requestMember("unknown", "VpcIds")))
@@ -363,12 +433,20 @@ final class TestTableFilters
         assertThatThrownBy(() -> create(ec2Filter("vpc_id", "vpc-id"), requestMember("vpc_id", "VpcIds")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("ec2.vpcs has many filters on the same column");
+        assertThatThrownBy(() -> requestMember("vpc_id", "VpcIds").withPrefixes())
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Filter on vpc_id pushes down prefixes, so it must be unenforced");
         assertThatThrownBy(() -> create(tagFilters("vpc_id")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Column vpc_id for tag filters is not a map with varchar keys and values: varchar");
         assertThatThrownBy(() -> TableFilters.create(TABLE_NAME, COLUMNS, List.of(ec2Filter("state", "state")), ListObjectsV2Request.builder().sdkFields()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Request of ec2.vpcs does not have EC2 filters for the filter on state");
+    }
+
+    private static Domain varcharRange(String low, String high)
+    {
+        return Domain.create(ValueSet.ofRanges(Range.range(VARCHAR, utf8Slice(low), true, utf8Slice(high), false)), false);
     }
 
     private static Optional<ConstraintApplicationResult<ConnectorTableHandle>> applyTagFilter(AwsTableHandle table, ConnectorExpression expression)

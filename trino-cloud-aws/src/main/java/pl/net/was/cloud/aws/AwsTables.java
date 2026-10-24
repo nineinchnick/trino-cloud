@@ -129,6 +129,7 @@ import static pl.net.was.cloud.aws.SdkValueConverter.toSdkValue;
 import static pl.net.was.cloud.aws.filters.ColumnFilter.TAG_FILTERS;
 import static pl.net.was.cloud.aws.filters.ColumnFilter.ec2Filter;
 import static pl.net.was.cloud.aws.filters.ColumnFilter.ec2Filters;
+import static pl.net.was.cloud.aws.filters.ColumnFilter.keyPrefix;
 import static pl.net.was.cloud.aws.filters.ColumnFilter.partition;
 import static pl.net.was.cloud.aws.filters.ColumnFilter.requestMember;
 import static pl.net.was.cloud.aws.filters.ColumnFilter.tagFilters;
@@ -387,6 +388,10 @@ public class AwsTables
                                 ec2Filters(TAG_FILTERS, "amazon-side-asn", "availability-zone", "state", "type", "vpn-gateway-id")),
                         AwsTable.builder(new SchemaTableName("s3", "buckets"), SdkTableColumns.of(Bucket.builder().sdkFields()))
                                 .rowSource(RequestRowSource.of(s3, ListBucketsRequest::builder, (client, request) -> client.listBucketsPaginator(request).buckets()))
+                                .filters(ImmutableList.of(
+                                        keyPrefix("name", "Prefix"),
+                                        // S3 compatible services, like Floci, can ignore it, and checking the few listed buckets again is cheap
+                                        requestMember("bucket_region", "BucketRegion").unenforced()))
                                 .inserter(new Inserter(CreateBucketRequest::builder, request -> createBucket(s3, (CreateBucketRequest) request), bucketSetters()))
                                 .build(),
                         bucketTable(s3, "objects", S3Object.builder().sdkFields(), ListObjectsV2Request::builder, (client, request) -> client.listObjectsV2Paginator(request).contents()),
@@ -521,7 +526,9 @@ public class AwsTables
                                 .prepend(new ColumnMetadata(BUCKET_NAME_COLUMN, VARCHAR), row -> row.requestValue(BUCKET_NAME_COLUMN))
                                 .build())
                 .rowSource(RequestRowSource.of(s3, request, executor))
-                .filters(ImmutableList.of(requestMember(BUCKET_NAME_COLUMN, "Bucket").defaultValues(() -> bucketNames(s3))))
+                .filters(ImmutableList.of(
+                        requestMember(BUCKET_NAME_COLUMN, "Bucket").defaultValues(() -> bucketNames(s3)),
+                        keyPrefix("key", "Prefix")))
                 .build();
     }
 

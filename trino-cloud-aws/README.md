@@ -480,9 +480,10 @@ pushed down for every `ec2` table except `ec2.regions`, and are not listed.
   `transit_gateway_id`, `type`, `vpn_connection_id`, `vpn_gateway_id`
 - `ec2.vpn_gateways`: `amazon_side_asn`, `availability_zone`, `state`, `tags`,
   `type`, `vpn_gateway_id`
-- `s3.deleted_objects`: `bucket_name`
-- `s3.object_versions`: `bucket_name`
-- `s3.objects`: `bucket_name`
+- `s3.buckets`: `bucket_region`, `name`
+- `s3.deleted_objects`: `bucket_name`, `key`
+- `s3.object_versions`: `bucket_name`, `key`
+- `s3.objects`: `bucket_name`, `key`
 
 Predicates on columns that are parameters of the AWS API operation, like
 `image_id`, `snapshot_id` and `bucket_name`, return only the matching rows.
@@ -496,6 +497,15 @@ For the `tags` column, and the `tag_set` column of `ec2.network_interfaces`,
 equality and `IN` predicates on the value of a tag, like `tags['Name'] = 'web'`
 or `element_at(tags, 'Name') IN ('web', 'db')`, are pushed down as the
 `tag:Name` EC2 filter.
+
+Predicates on the `key` column of the `s3` object tables, and on the `name`
+column of `s3.buckets`, are pushed down as the prefix of the listed keys or
+bucket names. Predicates that only match values starting with the same prefix,
+like `key LIKE 'logs/2024/%'`, `starts_with(key, 'logs/')`, or
+`key >= 'logs/2024' AND key < 'logs/2025'`, are pushed down as that prefix.
+Every value of an equality or `IN` predicate is listed as a prefix in a separate
+split. Trino applies the whole predicate to the listed keys, so in
+`key LIKE 'logs/%.json'`, only the `logs/` prefix limits the listed keys.
 
 # SQL support
 
@@ -732,6 +742,9 @@ the `ColumnFilter` factories:
   their names from the AWS API reference. `TAG_FILTERS` stands for the `tag:<key>` filters.
 - `tagFilters(column)` adds a `tag:<key>` EC2 filter for every key used in equality and `IN` predicates on the
   values of the map column, like `tags['Name'] = 'web'`.
+- `keyPrefix(column, memberName)` sets the common prefix of the matching values in a scalar member of the request,
+  like the `Prefix` of S3 listings for `key LIKE 'logs/%'`. AWS returns all values with the prefix, so Trino
+  still applies the predicate.
 - `partition(column)` chooses the client that sends the request, like the client of a region. Regional EC2 tables
   get the `region` partition column from `regionalTable`, with the configured regions as its known values.
 
@@ -739,6 +752,8 @@ Options of a column filter:
 
 - `unenforced()` keeps the predicate in the filter applied by Trino, when AWS can return rows that don't match
   it, like for owner aliases of `ec2.images`.
+- `withPrefixes()` also pushes down ranges of values with a common prefix to an unenforced filter. EC2 filters
+  receive the prefix followed by the `*` wildcard.
 - `knownValues(supplier)` lists all the values that can be read, like the configured regions. Scans are divided into
   a split for every batch of the values, also without a filter, and other filter values match no rows.
 - `defaultValues(supplier, unlessFilteredColumns...)` lists the values read by scans without a filter on the
