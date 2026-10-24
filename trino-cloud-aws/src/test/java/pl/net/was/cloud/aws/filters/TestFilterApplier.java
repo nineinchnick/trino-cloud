@@ -85,6 +85,26 @@ final class TestFilterApplier
     }
 
     @Test
+    void testDeclinesNullFilters()
+    {
+        AwsTableHandle table = new AwsTableHandle(new SchemaTableName("ec2", "images"));
+        Domain valueOrNull = Domain.create(ValueSet.of(VARCHAR, utf8Slice("a")), true);
+
+        assertThat(applyFilter(table, Map.of(ID, Domain.onlyNull(VARCHAR)))).isEmpty();
+        assertThat(applyFilter(table, Map.of(ID, Domain.notNull(VARCHAR)))).isEmpty();
+        assertThat(applyFilter(table, Map.of(ID, valueOrNull))).isEmpty();
+    }
+
+    @Test
+    void testDeclinesRanges()
+    {
+        AwsTableHandle table = new AwsTableHandle(new SchemaTableName("ec2", "images"));
+        Domain range = Domain.create(ValueSet.ofRanges(Range.greaterThan(VARCHAR, utf8Slice("a"))), false);
+
+        assertThat(applyFilter(table, Map.of(ID, range))).isEmpty();
+    }
+
+    @Test
     void testKeepsUnenforcedFilterInRemainingFilter()
     {
         FilterApplier filterApplier = new FilterApplier()

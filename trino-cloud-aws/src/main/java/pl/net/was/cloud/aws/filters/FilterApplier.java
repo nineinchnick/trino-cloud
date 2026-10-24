@@ -126,40 +126,33 @@ public interface FilterApplier
             log.debug("Missing filter on %s", column.name());
             return null;
         }
-        TupleDomain<ColumnHandle> newConstraint = constraint.filter(
-                (columnHandle, _) -> columnHandle.equals(column));
-        if (!domain.getType().isOrderable()) {
-            return newConstraint;
+        if (domain.isNullAllowed()) {
+            log.debug("Not pushing down filter on %s because it allows nulls: %s", column.name(), domain);
+            return null;
         }
-        switch (supportedFilter) {
+        return switch (supportedFilter) {
+            case EQUAL -> {
+                if (domain.getValues().isNone() || !domain.getValues().isDiscreteSet()) {
+                    log.debug("Not pushing down filter on %s because it's not a discrete set: %s", column.name(), domain);
+                    yield null;
+                }
+                yield TupleDomain.withColumnDomains(Map.of(column, domain));
+            }
             case GREATER_THAN_EQUAL -> {
-                // normalize the constraint into a low-bound range
-                Range span = domain.getValues().getRanges().getSpan();
-                if (span.isLowUnbounded()) {
+                if (!domain.getType().isOrderable() || domain.getValues().getRanges().getSpan().isLowUnbounded()) {
                     log.debug("Not pushing down filter on %s because it does not have a lower bound: %s", column.name(), domain);
-                    return null;
+                    yield null;
                 }
-                if (domain.isNullAllowed()) {
-                    log.debug("Not pushing down filter on %s because it allows nulls: %s", column.name(), domain);
-                    return null;
-                }
-                newConstraint = TupleDomain.withColumnDomains(Map.of(
+                // normalize the constraint into a low-bound range
+                yield TupleDomain.withColumnDomains(Map.of(
                         column, Domain.create(
                                 ValueSet.ofRanges(
                                         Range.greaterThanOrEqual(
                                                 domain.getType(),
-                                                span.getLowBoundedValue())),
+                                                domain.getValues().getRanges().getSpan().getLowBoundedValue())),
                                 false)));
             }
-            case EQUAL -> {
-                if (!domain.getValues().isDiscreteSet() && !domain.getValues().getRanges().getOrderedRanges().stream().allMatch(Range::isSingleValue)) {
-                    log.debug("Not pushing down filter on %s because it's not a discrete set: %s", column.name(), domain);
-                    return null;
-                }
-                return newConstraint;
-            }
-        }
-        return newConstraint;
+        };
     }
 
     private boolean validateConstraint(AwsColumnHandle column, FilterType supportedFilter, TupleDomain<ColumnHandle> currentConstraint, TupleDomain<ColumnHandle> newConstraint)
