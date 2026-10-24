@@ -66,6 +66,11 @@ For example:
 SELECT key, size FROM s3.objects WHERE bucket_name = 'my-bucket';
 ```
 
+## Writes
+
+Writes are disabled by default, so the connector can't create, modify or remove any AWS resources.
+To enable `INSERT`, `UPDATE` and `DELETE`, set `aws.read-only=false` in the catalog properties file.
+
 The following tables support inserting into:
 * `ec2.images`
 * `ec2.instances`
@@ -112,6 +117,7 @@ The following configuration options are recognized by this connector:
 | `aws.max-connections`   | Maximum number of concurrent connections to each AWS service.                                                                                   | `50`                                  |
 | `aws.retry-mode`        | AWS SDK retry mode used when requests fail or are throttled: `STANDARD`, `LEGACY` or `ADAPTIVE`.                                                | `ADAPTIVE`                            |
 | `aws.max-error-retries` | Maximum number of retries of a failed AWS request.                                                                                              | `10`                                  |
+| `aws.read-only`         | Reject `INSERT`, `UPDATE` and `DELETE`, which create, modify and remove AWS resources. See [Writes](#writes).                                   | `true`                                |
 
 If `aws.region` is not set, the connector uses the
 [AWS SDK default region provider chain](https://docs.aws.amazon.com/sdk-for-java/latest/developer-guide/region-selection.html),
