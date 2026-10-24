@@ -21,12 +21,18 @@ import io.trino.spi.type.MapType;
 import io.trino.spi.type.RowType;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeOperators;
+import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.core.SdkField;
 import software.amazon.awssdk.core.SdkPojo;
+import software.amazon.awssdk.core.document.Document;
 import software.amazon.awssdk.core.protocol.MarshallingType;
 import software.amazon.awssdk.core.traits.ListTrait;
 import software.amazon.awssdk.core.traits.MapTrait;
+import software.amazon.awssdk.utils.builder.SdkBuilder;
+import software.amazon.awssdk.utils.builder.ToCopyableBuilder;
 
+import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -88,6 +94,24 @@ final class SdkColumns
     private static final Map<SdkField<?>, Type> FIELD_TYPES = new ConcurrentHashMap<>();
     // keyed by the class of SDK models and their builders, which have constant lists of fields, so there's a bounded number of them
     private static final Map<Class<?>, List<SdkField<?>>> MAPPED_FIELDS = new ConcurrentHashMap<>();
+    // the generated toString of SDK models replaces values of fields marked as sensitive in the service model with this text
+    private static final String REDACTED = "*** Sensitive Data Redacted ***";
+
+    private static final Map<MarshallingType<?>, Object> SAMPLE_VALUES = ImmutableMap.<MarshallingType<?>, Object>builder()
+            .put(MarshallingType.STRING, "x")
+            .put(MarshallingType.SHORT, (short) 1)
+            .put(MarshallingType.INTEGER, 1)
+            .put(MarshallingType.LONG, 1L)
+            .put(MarshallingType.FLOAT, 1.0f)
+            .put(MarshallingType.DOUBLE, 1.0)
+            .put(MarshallingType.BOOLEAN, true)
+            .put(MarshallingType.INSTANT, Instant.EPOCH)
+            .put(MarshallingType.SDK_BYTES, SdkBytes.fromUtf8String("x"))
+            .put(MarshallingType.BIG_DECIMAL, BigDecimal.ONE)
+            .put(MarshallingType.DOCUMENT, Document.fromString("x"))
+            .put(MarshallingType.LIST, List.of())
+            .put(MarshallingType.MAP, Map.of())
+            .buildOrThrow();
 
     private SdkColumns() {}
 
@@ -116,11 +140,13 @@ final class SdkColumns
 
     /**
      * Fields of an SDK model object or builder that are mapped to columns or row fields, in the same order as the columns or row fields.
+     * Fields with sensitive values, like keys and passwords, are not mapped, so users of a catalog can't read them with its credentials.
      */
     public static List<SdkField<?>> mappedFields(SdkPojo model)
     {
         return MAPPED_FIELDS.computeIfAbsent(model.getClass(), _ -> model.sdkFields().stream()
                 .filter(field -> field.marshallingType() != MarshallingType.NULL)
+                .filter(field -> !isSensitive(model, field))
                 .collect(toImmutableList()));
     }
 
@@ -196,5 +222,46 @@ final class SdkColumns
         for (String name : names) {
             checkArgument(uniqueNames.add(name), "More than one field is mapped to %s in %s, add the word that is split incorrectly to SdkColumns.WORDS", name, names);
         }
+    }
+
+    // the SDK doesn't expose which fields are sensitive, so set a value and check if it's redacted when converting the model to a string
+    private static boolean isSensitive(SdkPojo model, SdkField<?> field)
+    {
+        Optional<SdkBuilder<?, ?>> builder = newBuilder(model);
+        if (builder.isEmpty()) {
+            return false;
+        }
+        Optional<Object> sample = sampleValue(field);
+        if (sample.isEmpty()) {
+            return false;
+        }
+        field.set(builder.get(), sample.get());
+        return builder.get().build().toString().contains(field.memberName() + "=" + REDACTED);
+    }
+
+    // every generated SDK model can be copied to a builder, other classes implementing SdkPojo don't redact values
+    private static Optional<SdkBuilder<?, ?>> newBuilder(SdkPojo model)
+    {
+        Object object = model;
+        if (model instanceof SdkBuilder<?, ?> builder) {
+            object = builder.build();
+        }
+        if (!(object instanceof ToCopyableBuilder<?, ?> copyable)) {
+            return Optional.empty();
+        }
+        return Optional.of((SdkBuilder<?, ?>) copyable.toBuilder());
+    }
+
+    private static Optional<Object> sampleValue(SdkField<?> field)
+    {
+        MarshallingType<?> type = field.marshallingType();
+        if (type == MarshallingType.SDK_POJO) {
+            Object value = field.constructor().get();
+            if (value instanceof SdkBuilder<?, ?> builder) {
+                return Optional.of(builder.build());
+            }
+            return Optional.of(value);
+        }
+        return Optional.ofNullable(SAMPLE_VALUES.get(type));
     }
 }
