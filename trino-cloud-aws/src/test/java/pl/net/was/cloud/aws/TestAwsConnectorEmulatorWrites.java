@@ -93,6 +93,43 @@ final class TestAwsConnectorEmulatorWrites
     }
 
     @Test
+    void testUpdateInstanceType()
+    {
+        String subnetId = createSubnet();
+        String instanceId = runInstance(subnetId);
+        ec2.stopInstances(request -> request.instanceIds(instanceId));
+        assertThat(instanceState(instanceId)).isEqualTo("stopped");
+
+        assertUpdate("UPDATE aws.ec2.instances SET instance_type = 't3.small' WHERE instance_id = '%s'".formatted(instanceId), 1);
+
+        assertQuery(
+                "SELECT instance_type, state['Name'] FROM aws.ec2.instances WHERE instance_id = '%s'".formatted(instanceId),
+                "VALUES ('t3.small', 'stopped')");
+    }
+
+    @Test
+    void testUpdateUnsupportedColumns()
+    {
+        String instanceId = testData.instanceIds().getFirst();
+        assertQueryFails(
+                "UPDATE aws.ec2.instances SET subnet_id = 'subnet-123' WHERE instance_id = '%s'".formatted(instanceId),
+                "Updating subnet_id in ec2.instances is not supported, only these columns can be updated: instance_type, state");
+        assertQueryFails(
+                "UPDATE aws.ec2.instances SET instance_type = 't3.small', key_name = 'other' WHERE instance_id = '%s'".formatted(instanceId),
+                "Updating key_name in ec2.instances is not supported, only these columns can be updated: instance_type, state");
+        assertQueryFails(
+                "UPDATE aws.ec2.images SET name = 'other' WHERE image_id = '%s'".formatted(IMAGE_ID),
+                "Updates are not supported for ec2.images");
+        assertQueryFails(
+                "UPDATE aws.ec2.instances SET instance_type = NULL WHERE instance_id = '%s'".formatted(instanceId),
+                "Updating instance_type in ec2.instances to NULL is not supported");
+
+        assertQuery(
+                "SELECT instance_type, subnet_id FROM aws.ec2.instances WHERE instance_id = '%s'".formatted(instanceId),
+                "VALUES ('%s', '%s')".formatted(INSTANCE_TYPE, testData.subnetId()));
+    }
+
+    @Test
     void testUpdateAndDeleteRequirePrimaryKeyFilter()
     {
         String subnetFilter = "subnet_id = '%s'".formatted(testData.subnetId());

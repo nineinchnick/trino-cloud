@@ -213,6 +213,7 @@ public class AwsMetadata
             throw new TrinoException(StandardErrorCode.NOT_SUPPORTED, "Deletes and updates are not supported for %s".formatted(awsTableHandle.schemaTableName()));
         }
         checkPrimaryKeyFilter(table, awsTableHandle);
+        Map<Integer, List<String>> updateCaseColumnNames = getUpdateCaseColumnNames(table, updateCaseColumns);
         // the merge page has a channel for every column that's not hidden, in the same order as in the table metadata
         List<ColumnMetadata> dataColumns = table.columns().stream()
                 .filter(column -> !column.isHidden())
@@ -221,7 +222,7 @@ public class AwsMetadata
                 awsTableHandle,
                 dataColumns.stream().map(ColumnMetadata::getName).collect(toImmutableList()),
                 dataColumns.stream().map(ColumnMetadata::getType).collect(toImmutableList()));
-        return new AwsMergeTableHandle(awsTableHandle, insertHandle);
+        return new AwsMergeTableHandle(awsTableHandle, insertHandle, updateCaseColumnNames);
     }
 
     @Override
@@ -265,6 +266,33 @@ public class AwsMetadata
         if (!hasFilter) {
             throw new TrinoException(AWS_MISSING_PREDICATE, "Deletes and updates on %1$s require a filter on %2$s, like WHERE %2$s = '...'".formatted(table.name(), primaryKey.name()));
         }
+    }
+
+    private static Map<Integer, List<String>> getUpdateCaseColumnNames(AwsTable table, Map<Integer, Collection<ColumnHandle>> updateCaseColumns)
+    {
+        Map<Integer, List<String>> updateCaseColumnNames = updateCaseColumns.entrySet().stream()
+                .collect(toImmutableMap(
+                        Map.Entry::getKey,
+                        entry -> entry.getValue().stream()
+                                .map(column -> ((AwsColumnHandle) column).name())
+                                .collect(toImmutableList())));
+        if (updateCaseColumnNames.isEmpty()) {
+            return updateCaseColumnNames;
+        }
+        Set<String> supportedColumns = table.updater()
+                .orElseThrow(() -> new TrinoException(NOT_SUPPORTED, "Updates are not supported for %s".formatted(table.name())))
+                .columns();
+        updateCaseColumnNames.values().stream()
+                .flatMap(Collection::stream)
+                .filter(column -> !supportedColumns.contains(column))
+                .findFirst()
+                .ifPresent(column -> {
+                    throw new TrinoException(NOT_SUPPORTED, "Updating %s in %s is not supported, only these columns can be updated: %s".formatted(
+                            column,
+                            table.name(),
+                            supportedColumns.stream().sorted().collect(joining(", "))));
+                });
+        return updateCaseColumnNames;
     }
 
     private ColumnHandle getRowId(AwsTableHandle tableHandle)

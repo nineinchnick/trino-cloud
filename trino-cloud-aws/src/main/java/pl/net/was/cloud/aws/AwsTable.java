@@ -14,6 +14,7 @@
 package pl.net.was.cloud.aws;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.SchemaTableName;
@@ -24,6 +25,8 @@ import software.amazon.awssdk.core.exception.SdkException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -62,6 +65,7 @@ public final class AwsTable
         checkArgument((updater.isEmpty() && deleter.isEmpty()) || columnHandles.containsKey(ROW_ID), "%s supports updates or deletes, so it must have a %s column", name, ROW_ID);
         checkArgument((updater.isEmpty() && deleter.isEmpty()) || primaryKey.isPresent(), "%s supports updates or deletes, so it must have a primary key", name);
         primaryKey.ifPresent(column -> checkArgument(columnHandles.containsKey(column), "Primary key column %s does not exist in %s", column, name));
+        updater.ifPresent(value -> value.columns().forEach(column -> checkArgument(columnHandles.containsKey(column), "Updated column %s does not exist in %s", column, name)));
     }
 
     public static Builder builder(SchemaTableName name, List<ColumnMetadata> columns)
@@ -160,10 +164,16 @@ public final class AwsTable
         }
     }
 
-    @FunctionalInterface
-    public interface Updater
+    /**
+     * The executor receives the row ID and the new values of the updated columns, which are a subset of the supported columns.
+     */
+    public record Updater(Set<String> columns, BiConsumer<String, Map<String, Object>> executor)
     {
-        void update(String rowId, Function<String, Object> columnValues);
+        public Updater
+        {
+            columns = ImmutableSet.copyOf(requireNonNull(columns, "columns is null"));
+            requireNonNull(executor, "executor is null");
+        }
     }
 
     @FunctionalInterface

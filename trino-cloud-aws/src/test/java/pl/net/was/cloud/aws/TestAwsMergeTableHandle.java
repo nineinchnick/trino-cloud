@@ -36,7 +36,7 @@ final class TestAwsMergeTableHandle
         AwsTableHandle table = new AwsTableHandle(new SchemaTableName("ec2", "instances"))
                 .withConstraint(TupleDomain.withColumnDomains(Map.of(
                         new AwsColumnHandle("instance_id", VARCHAR), Domain.singleValue(VARCHAR, utf8Slice("i-123")))));
-        AwsMergeTableHandle handle = new AwsMergeTableHandle(table, new AwsInsertTableHandle(table, List.of("instance_id"), List.of(VARCHAR)));
+        AwsMergeTableHandle handle = new AwsMergeTableHandle(table, new AwsInsertTableHandle(table, List.of("instance_id"), List.of(VARCHAR)), Map.of(0, List.of("state", "instance_type")));
 
         assertThat(roundTrip(AwsMergeTableHandle.class, handle)).isEqualTo(handle);
     }
@@ -47,7 +47,7 @@ final class TestAwsMergeTableHandle
         AwsTableHandle instances = new AwsTableHandle(new SchemaTableName("ec2", "instances"));
         AwsTableHandle images = new AwsTableHandle(new SchemaTableName("ec2", "images"));
 
-        assertThatThrownBy(() -> new AwsMergeTableHandle(instances, new AwsInsertTableHandle(images, List.of(), List.of())))
+        assertThatThrownBy(() -> new AwsMergeTableHandle(instances, new AwsInsertTableHandle(images, List.of(), List.of()), Map.of()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("tableHandle and insertHandle refer to different tables");
     }

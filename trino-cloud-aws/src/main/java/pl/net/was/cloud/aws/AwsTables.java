@@ -23,6 +23,7 @@ import io.trino.spi.block.SqlMap;
 import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.SchemaTableName;
 import pl.net.was.cloud.aws.AwsTable.Inserter;
+import pl.net.was.cloud.aws.AwsTable.Updater;
 import pl.net.was.cloud.aws.filters.BucketFilter;
 import pl.net.was.cloud.aws.filters.FilterApplier;
 import pl.net.was.cloud.aws.filters.ImageFilter;
@@ -137,7 +138,7 @@ public class AwsTables
                                 .inserter(new Inserter(
                                         () -> RunInstancesRequest.builder().minCount(1).maxCount(1),
                                         request -> ec2.runInstances((RunInstancesRequest) request).instances().stream().map(Instance::instanceId).toList()))
-                                .updater((rowId, columnValues) -> updateInstance(ec2, rowId, columnValues))
+                                .updater(new Updater(ImmutableSet.of("state", "instance_type"), (rowId, values) -> updateInstance(ec2, rowId, values)))
                                 .deleter(rowId -> ec2.terminateInstances(TerminateInstancesRequest.builder().instanceIds(rowId).build()))
                                 .build(),
                         simpleTable("ec2", "key_pairs", KeyPairInfo.builder().sdkFields(), () -> ec2.describeKeyPairs().keyPairs()),
@@ -299,21 +300,27 @@ public class AwsTables
         return List.of(request.bucket());
     }
 
-    private static void updateInstance(Ec2Client ec2, String rowId, Function<String, Object> columnValues)
+    // the instance type can only be changed when the instance is stopped, so it's changed before starting the instance
+    private static void updateInstance(Ec2Client ec2, String rowId, Map<String, Object> values)
     {
-        String desiredState = (String) getValue(VARCHAR, 1, ((SqlMap) columnValues.apply("state")).getRawKeyBlock());
+        if (values.containsKey("instance_type")) {
+            String desiredInstanceType = ((String) values.get("instance_type")).toLowerCase(Locale.US);
+            ec2.modifyInstanceAttribute(
+                    ModifyInstanceAttributeRequest
+                            .builder()
+                            .instanceType(AttributeValue.builder().value(desiredInstanceType).build())
+                            .instanceId(rowId)
+                            .build());
+        }
+        if (!values.containsKey("state")) {
+            return;
+        }
+        String desiredState = (String) getValue(VARCHAR, 1, ((SqlMap) values.get("state")).getRawKeyBlock());
         switch (desiredState) {
             case "running" -> ec2.startInstances(StartInstancesRequest.builder().instanceIds(rowId).build());
             case "stopped" -> ec2.stopInstances(StopInstancesRequest.builder().instanceIds(rowId).build());
             default -> throw new TrinoException(NOT_SUPPORTED, "Updates of ec2.instances.state column to %s are not supported".formatted(desiredState));
         }
-        String desiredInstanceType = ((String) columnValues.apply("instance_type")).toLowerCase(Locale.US);
-        ec2.modifyInstanceAttribute(
-                ModifyInstanceAttributeRequest
-                        .builder()
-                        .instanceType(AttributeValue.builder().value(desiredInstanceType).build())
-                        .instanceId(rowId)
-                        .build());
     }
 
     private static <T extends SdkPojo> Iterable<List<?>> encodeRows(Iterable<T> objects, List<Function<SdkPojo, Object>> prependValues)
