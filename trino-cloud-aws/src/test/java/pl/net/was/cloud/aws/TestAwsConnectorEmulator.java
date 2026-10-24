@@ -185,6 +185,14 @@ final class TestAwsConnectorEmulator
     }
 
     @Test
+    void testNullListColumns()
+    {
+        assertQuery(
+                "SELECT product_codes IS NULL, licenses IS NULL, cardinality(tags) FROM aws.ec2.instances WHERE instance_id = '%s'".formatted(testData.instanceIds().getFirst()),
+                "VALUES (true, true, 1)");
+    }
+
+    @Test
     void testImagesRequireFilterOrLimit()
     {
         assertQueryFails("SELECT * FROM aws.ec2.images", "Missing a limit or constraint for image_id, name, or owner_id");

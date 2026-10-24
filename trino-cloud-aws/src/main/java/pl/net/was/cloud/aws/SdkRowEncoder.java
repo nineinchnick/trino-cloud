@@ -23,6 +23,8 @@ import software.amazon.awssdk.core.SdkField;
 import software.amazon.awssdk.core.SdkPojo;
 import software.amazon.awssdk.core.protocol.MarshallingType;
 import software.amazon.awssdk.core.traits.ListTrait;
+import software.amazon.awssdk.core.util.SdkAutoConstructList;
+import software.amazon.awssdk.core.util.SdkAutoConstructMap;
 
 import java.time.Instant;
 import java.util.List;
@@ -32,7 +34,6 @@ import java.util.stream.Stream;
 
 import static io.trino.spi.type.Timestamps.MICROSECONDS_PER_SECOND;
 import static io.trino.spi.type.VarcharType.VARCHAR;
-import static java.util.Objects.requireNonNullElse;
 
 final class SdkRowEncoder
 {
@@ -96,7 +97,10 @@ final class SdkRowEncoder
             return encodeMap((Map<?, ?>) o);
         }
         if (sdkType == MarshallingType.LIST) {
-            List<?> list = requireNonNullElse((List<?>) o, List.of());
+            if (isUnset(o)) {
+                return null;
+            }
+            List<?> list = (List<?>) o;
             if (f.containsTrait(ListTrait.class) &&
                     f.getTrait(ListTrait.class).memberFieldInfo().marshallingType() == MarshallingType.SDK_POJO) {
                 MapBlockBuilder mapBlockBuilder = mapType.createBlockBuilder(null, list.size());
@@ -139,7 +143,7 @@ final class SdkRowEncoder
 
     private static SqlMap encodeMap(Map<?, ?> map)
     {
-        if (map == null) {
+        if (isUnset(map)) {
             return null;
         }
         MapBlockBuilder values = mapType.createBlockBuilder(null, map.size());
@@ -155,10 +159,16 @@ final class SdkRowEncoder
     // writing NULL values instead of skipping keys keeps the subscript operator working, since it fails for missing keys
     private static void writeNullableString(BlockBuilder blockBuilder, Object value)
     {
-        if (value == null) {
+        if (isUnset(value)) {
             blockBuilder.appendNull();
             return;
         }
         VARCHAR.writeString(blockBuilder, value.toString());
+    }
+
+    // the SDK returns auto construct collections instead of null for collections missing from the response
+    private static boolean isUnset(Object value)
+    {
+        return value == null || value instanceof SdkAutoConstructList<?> || value instanceof SdkAutoConstructMap<?, ?>;
     }
 }
