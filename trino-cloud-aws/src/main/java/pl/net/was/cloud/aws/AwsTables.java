@@ -23,8 +23,10 @@ import com.google.common.collect.Lists;
 import com.google.inject.Inject;
 import io.airlift.slice.Slice;
 import io.trino.spi.TrinoException;
+import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.SchemaTableName;
+import io.trino.spi.predicate.TupleDomain;
 import pl.net.was.cloud.aws.AwsTable.ColumnSetter;
 import pl.net.was.cloud.aws.AwsTable.Deleter;
 import pl.net.was.cloud.aws.AwsTable.Inserter;
@@ -565,7 +567,7 @@ public class AwsTables
     {
         FilterApplier filter = table.requireFilterApplier();
         List<String> imageIds = filter.getFilterValues(table.columnHandle("image_id"), handle.constraint());
-        List<String> names = filter.getFilterValues(table.columnHandle("name"), handle.constraint());
+        List<String> names = imageNames(filter, table.columnHandle("name"), handle.constraint());
         List<String> owners = filter.getFilterValues(table.columnHandle("owner_id"), handle.constraint());
         ImmutableList.Builder<Filter> imageFilters = ImmutableList.<Filter>builder().addAll(filters);
         if (!names.isEmpty()) {
@@ -585,6 +587,18 @@ public class AwsTables
                 ? ec2.describeImagesPaginator(baseRequest).images()
                 : describeByIds(imageIds, MISSING_IMAGE_CODES, ids -> ec2.describeImagesPaginator(baseRequest.toBuilder().imageIds(ids).build()).images());
         return images;
+    }
+
+    // a range of names with a common prefix, like the one of name LIKE 'prefix%', is filtered using the prefix followed by a wildcard
+    private static List<String> imageNames(FilterApplier filter, AwsColumnHandle column, TupleDomain<ColumnHandle> constraint)
+    {
+        List<String> names = filter.getFilterValues(column, constraint);
+        if (!names.isEmpty()) {
+            return names;
+        }
+        return filter.getFilterPrefix(column, constraint)
+                .map(prefix -> List.of(prefix + "*"))
+                .orElse(List.of());
     }
 
     private static Iterable<Snapshot> snapshots(Ec2Client ec2, List<Filter> filters, AwsTable table, AwsTableHandle handle)

@@ -27,7 +27,7 @@ public class ImageFilter
     {
         return ImmutableMap.of(
                 "image_id", FilterType.EQUAL,
-                "name", FilterType.EQUAL,
+                "name", FilterType.PREFIX,
                 "owner_id", FilterType.EQUAL);
     }
 

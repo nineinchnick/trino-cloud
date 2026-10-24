@@ -399,6 +399,11 @@ FROM example.ec2.images
 WHERE owner_id = '137112412989' AND name LIKE 'al2023-ami-2023%';
 ```
 
+A `LIKE` predicate on the `name` column of `ec2.images` is pushed down as the
+constant prefix of its pattern followed by the `*` wildcard, like
+`al2023-ami-2023*` in the previous example. Trino applies the rest of the
+pattern.
+
 ## `s3` schema
 
 The tables in the `s3` schema list buckets in all regions, and access each

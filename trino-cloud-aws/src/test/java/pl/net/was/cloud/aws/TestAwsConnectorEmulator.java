@@ -329,6 +329,16 @@ final class TestAwsConnectorEmulator
     }
 
     @Test
+    void testImageNamePrefixPushdown()
+    {
+        assertThat(query("SELECT image_id FROM aws.ec2.images WHERE owner_id = '%s' AND name LIKE 'amzn2-ami-hvm-%%-x86_64-gp2'".formatted(IMAGE_OWNER_ID)))
+                .matches("VALUES VARCHAR '%s'".formatted(IMAGE_ID));
+        assertInputRows("SELECT image_id FROM aws.ec2.images WHERE owner_id = '%s'".formatted(IMAGE_OWNER_ID), 3);
+        assertInputRows("SELECT image_id FROM aws.ec2.images WHERE owner_id = '%s' AND name LIKE 'amzn2-ami-hvm-%%-x86_64-gp2'".formatted(IMAGE_OWNER_ID), 1);
+        assertInputRows("SELECT image_id FROM aws.ec2.images WHERE owner_id = '%s' AND name LIKE 'al2023-ami-%%'".formatted(IMAGE_OWNER_ID), 2);
+    }
+
+    @Test
     void testManyImageIds()
     {
         List<String> imageIds = ImmutableList.<String>builder()
