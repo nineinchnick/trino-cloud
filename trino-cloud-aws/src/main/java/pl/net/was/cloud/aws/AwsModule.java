@@ -19,7 +19,6 @@ import com.google.inject.Inject;
 import com.google.inject.Module;
 import com.google.inject.Provider;
 import com.google.inject.Scopes;
-import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.s3.S3Client;
 
 import static io.airlift.bootstrap.ClosingBinder.closingBinder;
@@ -41,30 +40,11 @@ public class AwsModule
         configBinder(binder).bindConfig(AwsConfig.class);
         binder.bind(AwsClientConfigurer.class).in(Scopes.SINGLETON);
 
-        binder.bind(Ec2Client.class).toProvider(Ec2ClientProvider.class).in(Scopes.SINGLETON);
+        binder.bind(Ec2Clients.class).in(Scopes.SINGLETON);
         binder.bind(S3Client.class).toProvider(S3ClientProvider.class).in(Scopes.SINGLETON);
-        closingBinder(binder).registerCloseable(Ec2Client.class);
+        closingBinder(binder).registerCloseable(Ec2Clients.class);
         closingBinder(binder).registerCloseable(S3Client.class);
         closingBinder(binder).registerCloseable(AwsClientConfigurer.class);
-    }
-
-    private static class Ec2ClientProvider
-            implements Provider<Ec2Client>
-    {
-        private final AwsClientConfigurer clientConfigurer;
-
-        @Inject
-        public Ec2ClientProvider(AwsClientConfigurer clientConfigurer)
-        {
-            this.clientConfigurer = requireNonNull(clientConfigurer, "clientConfigurer is null");
-        }
-
-        @Override
-        public Ec2Client get()
-        {
-            return clientConfigurer.configure(Ec2Client.builder())
-                    .build();
-        }
     }
 
     private static class S3ClientProvider
