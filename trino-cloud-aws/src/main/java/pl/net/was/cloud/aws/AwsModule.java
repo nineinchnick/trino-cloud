@@ -19,8 +19,6 @@ import com.google.inject.Inject;
 import com.google.inject.Module;
 import com.google.inject.Provider;
 import com.google.inject.Scopes;
-import io.trino.spi.NodeManager;
-import io.trino.spi.type.TypeManager;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.s3.S3Client;
 
@@ -31,21 +29,9 @@ import static java.util.Objects.requireNonNull;
 public class AwsModule
         implements Module
 {
-    private final NodeManager nodeManager;
-    private final TypeManager typeManager;
-
-    public AwsModule(NodeManager nodeManager, TypeManager typeManager)
-    {
-        this.nodeManager = requireNonNull(nodeManager, "nodeManager is null");
-        this.typeManager = requireNonNull(typeManager, "typeManager is null");
-    }
-
     @Override
     public void configure(Binder binder)
     {
-        binder.bind(NodeManager.class).toInstance(nodeManager);
-        binder.bind(TypeManager.class).toInstance(typeManager);
-
         binder.bind(AwsConnector.class).in(Scopes.SINGLETON);
         binder.bind(AwsTables.class).in(Scopes.SINGLETON);
         binder.bind(AwsMetadata.class).in(Scopes.SINGLETON);

@@ -24,6 +24,6 @@ public class AwsPlugin
     @Override
     public Iterable<ConnectorFactory> getConnectorFactories()
     {
-        return ImmutableList.of(new AwsConnectorFactory("aws"));
+        return ImmutableList.of(new AwsConnectorFactory());
     }
 }
