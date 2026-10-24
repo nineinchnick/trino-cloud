@@ -58,7 +58,7 @@ import software.amazon.awssdk.services.ec2.model.Snapshot;
 import software.amazon.awssdk.services.ec2.model.StartInstancesRequest;
 import software.amazon.awssdk.services.ec2.model.StopInstancesRequest;
 import software.amazon.awssdk.services.ec2.model.Subnet;
-import software.amazon.awssdk.services.ec2.model.Tag;
+import software.amazon.awssdk.services.ec2.model.TagDescription;
 import software.amazon.awssdk.services.ec2.model.TerminateInstancesRequest;
 import software.amazon.awssdk.services.ec2.model.Volume;
 import software.amazon.awssdk.services.ec2.model.Vpc;
@@ -142,7 +142,7 @@ public class AwsTables
                         simpleTable("ec2", "snapshots", Snapshot.builder().sdkFields(), () -> ec2.describeSnapshots(DescribeSnapshotsRequest.builder().maxResults(100).build()).snapshots()),
                         simpleTable("ec2", "security_groups", SecurityGroup.builder().sdkFields(), () -> ec2.describeSecurityGroups().securityGroups()),
                         simpleTable("ec2", "subnets", Subnet.builder().sdkFields(), () -> ec2.describeSubnets().subnets()),
-                        simpleTable("ec2", "tags", Tag.builder().sdkFields(), () -> ec2.describeTags().tags()),
+                        simpleTable("ec2", "tags", TagDescription.builder().sdkFields(), () -> ec2.describeTags().tags()),
                         simpleTable("ec2", "volumes", Volume.builder().sdkFields(), () -> ec2.describeVolumes().volumes()),
                         simpleTable("ec2", "vpc_endpoints", VpcEndpoint.builder().sdkFields(), () -> ec2.describeVpcEndpoints().vpcEndpoints()),
                         simpleTable("ec2", "vpc_peering_connections", VpcPeeringConnection.builder().sdkFields(), () -> ec2.describeVpcPeeringConnections().vpcPeeringConnections()),
