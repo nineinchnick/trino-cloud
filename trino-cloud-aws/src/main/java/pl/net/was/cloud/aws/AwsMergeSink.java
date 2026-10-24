@@ -39,7 +39,6 @@ import java.util.function.BiConsumer;
 import static io.trino.spi.StandardErrorCode.INVALID_COLUMN_REFERENCE;
 import static io.trino.spi.type.TinyintType.TINYINT;
 import static io.trino.spi.type.VarcharType.VARCHAR;
-import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 
 public class AwsMergeSink
@@ -107,7 +106,7 @@ public class AwsMergeSink
         switch (desiredState) {
             case "running" -> ec2.startInstances(StartInstancesRequest.builder().instanceIds(rowId).build());
             case "stopped" -> ec2.stopInstances(StopInstancesRequest.builder().instanceIds(rowId).build());
-            default -> throw new TrinoException(INVALID_COLUMN_REFERENCE, format("Updates of ec2.instances.state column to %s are not supported", desiredState));
+            default -> throw new TrinoException(INVALID_COLUMN_REFERENCE, "Updates of ec2.instances.state column to %s are not supported".formatted(desiredState));
         }
         String desiredInstanceType = getInstanceType(page, position);
         ec2.modifyInstanceAttribute(

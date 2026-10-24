@@ -51,6 +51,7 @@ public final class AwsOutputTableHandle
         this.columnTypes = ImmutableList.copyOf(columnTypes);
     }
 
+    @Override
     @JsonProperty("tableHandle")
     public AwsTableHandle getTableHandle()
     {

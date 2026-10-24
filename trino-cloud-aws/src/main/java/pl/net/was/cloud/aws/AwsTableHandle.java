@@ -60,6 +60,7 @@ public class AwsTableHandle
         this.updatedColumns = Optional.ofNullable(updatedColumns);
     }
 
+    @Override
     public String toString()
     {
         return schemaTableName.getTableName();
@@ -98,7 +99,7 @@ public class AwsTableHandle
     @JsonProperty("sortOrder")
     public Optional<List<SortItem>> getSortOrder()
     {
-        return sortOrder == null ? Optional.empty() : Optional.of(sortOrder);
+        return Optional.ofNullable(sortOrder);
     }
 
     @JsonProperty("updatedColumns")

@@ -32,7 +32,6 @@ import java.util.List;
 import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
-import static java.util.stream.Collectors.toList;
 
 public class AwsSplitManager
         implements ConnectorSplitManager
@@ -55,7 +54,7 @@ public class AwsSplitManager
     {
         List<HostAddress> addresses = nodeManager.getRequiredWorkerNodes().stream()
                 .map(Node::getHostAndPort)
-                .collect(toList());
+                .toList();
 
         return new FixedSplitSource(ImmutableList.of(
                 new AwsConnectorSplit((AwsTableHandle) table, addresses)));

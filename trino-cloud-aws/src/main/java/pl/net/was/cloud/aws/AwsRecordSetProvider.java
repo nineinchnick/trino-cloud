@@ -55,14 +55,15 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
+import static com.google.common.base.MoreObjects.firstNonNull;
 import static io.trino.spi.StandardErrorCode.INVALID_ROW_FILTER;
 import static io.trino.spi.type.Timestamps.MICROSECONDS_PER_SECOND;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.util.Objects.requireNonNull;
-import static java.util.stream.Collectors.toList;
 
 public class AwsRecordSetProvider
         implements ConnectorRecordSetProvider
@@ -151,7 +152,7 @@ public class AwsRecordSetProvider
         List<AwsColumnHandle> restColumnHandles = list
                 .stream()
                 .map(c -> (AwsColumnHandle) c)
-                .collect(toList());
+                .toList();
         ConnectorTableMetadata tableMetadata = metadata.getTableMetadata(connectorSession, table);
 
         List<Integer> columnIndexes = restColumnHandles
@@ -166,12 +167,12 @@ public class AwsRecordSetProvider
                     }
                     throw new IllegalStateException("Unknown column: " + column.getName());
                 })
-                .collect(toList());
+                .toList();
 
         List<Type> mappedTypes = restColumnHandles
                 .stream()
                 .map(AwsColumnHandle::getType)
-                .collect(toList());
+                .toList();
 
         //noinspection StaticPseudoFunctionalStyleMethod
         Iterable<List<?>> mappedRows = Iterables.transform(
@@ -179,7 +180,7 @@ public class AwsRecordSetProvider
                 row -> columnIndexes
                         .stream()
                         .map(row::get)
-                        .collect(toList()));
+                        .toList());
 
         return new InMemoryRecordSet(mappedTypes, mappedRows);
     }
@@ -230,24 +231,24 @@ public class AwsRecordSetProvider
                 .stream()
                 .flatMap(r -> r.instances()
                         .stream()
-                        .map(i -> encodeRow(i, List.of(o -> Slices.utf8Slice(((Instance) o).instanceId())))))
-                .collect(toList());
+                        .<List<?>>map(i -> encodeRow(i, List.of(o -> Slices.utf8Slice(((Instance) o).instanceId())))))
+                .toList();
     }
 
     private static Iterable<List<?>> encodeRows(List<? extends SdkPojo> objects)
     {
         return objects
                 .stream()
-                .map(r -> encodeRow(r, List.of()))
-                .collect(toList());
+                .<List<?>>map(r -> encodeRow(r, List.of()))
+                .toList();
     }
 
     private static Iterable<List<?>> encodeRows(List<? extends SdkPojo> objects, List<Function<SdkPojo, Object>> prependValues)
     {
         return objects
                 .stream()
-                .map(r -> encodeRow(r, prependValues))
-                .collect(toList());
+                .<List<?>>map(r -> encodeRow(r, prependValues))
+                .toList();
     }
 
     private static List<?> encodeRow(SdkPojo o, List<Function<SdkPojo, Object>> prependValues)
@@ -259,7 +260,7 @@ public class AwsRecordSetProvider
                         o.sdkFields()
                                 .stream()
                                 .map(f -> encodeField(f, f.getValueOrDefault(o))))
-                .collect(toList());
+                .toList();
     }
 
     // must support all types from AwsMetadata.typeMap
@@ -290,22 +291,18 @@ public class AwsRecordSetProvider
             return encodeMap((Map<?, ?>) o);
         }
         if (sdkType == MarshallingType.LIST) {
-            List<?> list = (List<?>) o;
+            List<?> list = firstNonNull((List<?>) o, List.of());
             if (f.containsTrait(ListTrait.class) &&
                     f.getTrait(ListTrait.class).memberFieldInfo().marshallingType() == MarshallingType.SDK_POJO) {
-                MapBlockBuilder mapBlockBuilder = mapType.createBlockBuilder(null, o != null ? list.size() : 0);
-                if (list != null) {
-                    for (Object value : list) {
-                        mapType.writeObject(mapBlockBuilder, encodeSdkPojo((SdkPojo) value));
-                    }
+                MapBlockBuilder mapBlockBuilder = mapType.createBlockBuilder(null, list.size());
+                for (Object value : list) {
+                    mapType.writeObject(mapBlockBuilder, encodeSdkPojo((SdkPojo) value));
                 }
                 return mapBlockBuilder.build();
             }
-            BlockBuilder varcharBlockBuilder = VARCHAR.createBlockBuilder(null, o != null ? list.size() : 0);
-            if (list != null) {
-                for (Object value : list) {
-                    VARCHAR.writeString(varcharBlockBuilder, value.toString());
-                }
+            BlockBuilder varcharBlockBuilder = VARCHAR.createBlockBuilder(null, list.size());
+            for (Object value : list) {
+                VARCHAR.writeString(varcharBlockBuilder, value.toString());
             }
             return varcharBlockBuilder.build();
         }
@@ -317,16 +314,15 @@ public class AwsRecordSetProvider
 
     private static SqlMap encodeSdkPojo(SdkPojo sdkPojo)
     {
-        MapBlockBuilder values = mapType.createBlockBuilder(null, sdkPojo != null ? sdkPojo.sdkFields().size() : 0);
         if (sdkPojo == null) {
-            values.appendNull();
-            return mapType.getObject(values.build(), 0);
+            return nullMap();
         }
+        MapBlockBuilder values = mapType.createBlockBuilder(null, sdkPojo.sdkFields().size());
         values.buildEntry((keyBuilder, valueBuilder) -> {
             for (SdkField<?> field : sdkPojo.sdkFields()) {
                 VARCHAR.writeString(keyBuilder, field.memberName());
                 Object value = field.getValueOrDefault(sdkPojo);
-                VARCHAR.writeString(valueBuilder, value != null ? value.toString() : "");
+                VARCHAR.writeString(valueBuilder, Objects.toString(value, ""));
             }
         });
         return mapType.getObject(values.build(), 0);
@@ -334,18 +330,24 @@ public class AwsRecordSetProvider
 
     private static SqlMap encodeMap(Map<?, ?> map)
     {
-        MapBlockBuilder values = mapType.createBlockBuilder(null, map != null ? map.size() : 0);
         if (map == null) {
-            values.appendNull();
-            return mapType.getObject(values.build(), 0);
+            return nullMap();
         }
+        MapBlockBuilder values = mapType.createBlockBuilder(null, map.size());
         values.buildEntry((keyBuilder, valueBuilder) -> {
             for (Map.Entry<?, ?> entry : map.entrySet()) {
                 VARCHAR.writeString(keyBuilder, (String) entry.getKey());
                 Object value = entry.getValue();
-                VARCHAR.writeString(valueBuilder, value != null ? value.toString() : "");
+                VARCHAR.writeString(valueBuilder, Objects.toString(value, ""));
             }
         });
+        return mapType.getObject(values.build(), 0);
+    }
+
+    private static SqlMap nullMap()
+    {
+        MapBlockBuilder values = mapType.createBlockBuilder(null, 0);
+        values.appendNull();
         return mapType.getObject(values.build(), 0);
     }
 }
