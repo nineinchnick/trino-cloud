@@ -17,6 +17,7 @@ package pl.net.was.cloud.aws;
 import io.airlift.slice.Slice;
 import io.trino.spi.Page;
 import io.trino.spi.TrinoException;
+import io.trino.spi.block.Block;
 import io.trino.spi.block.BlockBuilder;
 import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.SchemaTableName;
@@ -133,7 +134,7 @@ final class TestAwsPageSink
 
         sink.appendPage(new Page(
                 imageIdsPage("ami-1").getBlock(0),
-                writeNativeValue(placementType, SdkRowEncoder.encodeValue(placementType, placement)),
+                encodeValue(placementType, placement),
                 writeNativeValue(BOOLEAN, true),
                 writeNativeValue(BIGINT, 1L))).join();
 
@@ -158,7 +159,7 @@ final class TestAwsPageSink
 
     private AwsTable table()
     {
-        return AwsTable.builder(TABLE_NAME, List.of(new ColumnMetadata("image_id", VARCHAR)))
+        return AwsTable.builder(TABLE_NAME, SdkTableColumns.builder(List.of()).prepend(new ColumnMetadata("image_id", VARCHAR), _ -> null).build())
                 .rowSource((_, _) -> List.of())
                 .inserter(new Inserter(RunInstancesRequest::builder, request -> {
                     RunInstancesRequest runInstances = (RunInstancesRequest) request;
@@ -175,5 +176,12 @@ final class TestAwsPageSink
             VARCHAR.writeString(block, imageId);
         }
         return new Page(block.build());
+    }
+
+    private static Block encodeValue(Type type, Object value)
+    {
+        BlockBuilder output = type.createBlockBuilder(null, 1);
+        SdkRowEncoder.writeValue(type, output, value);
+        return output.build();
     }
 }

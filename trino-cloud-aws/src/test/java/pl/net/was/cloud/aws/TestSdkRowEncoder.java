@@ -14,6 +14,7 @@
 package pl.net.was.cloud.aws;
 
 import com.google.common.collect.Iterables;
+import io.trino.spi.block.BlockBuilder;
 import io.trino.spi.type.ArrayType;
 import io.trino.spi.type.RowType;
 import io.trino.spi.type.Type;
@@ -38,6 +39,7 @@ import static io.airlift.slice.Slices.wrappedBuffer;
 import static io.trino.spi.type.DateTimeEncoding.packDateTimeWithZone;
 import static io.trino.spi.type.DateTimeEncoding.unpackMillisUtc;
 import static io.trino.spi.type.TimeZoneKey.UTC_KEY;
+import static io.trino.spi.type.TypeUtils.readNativeValue;
 import static io.trino.spi.type.TypeUtils.writeNativeValue;
 import static io.trino.spi.type.VarbinaryType.VARBINARY;
 import static io.trino.spi.type.VarcharType.VARCHAR;
@@ -158,15 +160,15 @@ final class TestSdkRowEncoder
     @Test
     void testBytesAndDecimals()
     {
-        assertThat(SdkRowEncoder.encodeValue(VARBINARY, SdkBytes.fromUtf8String("bytes"))).isEqualTo(wrappedBuffer("bytes".getBytes(UTF_8)));
-        assertThat(SdkRowEncoder.encodeValue(VARCHAR, new BigDecimal("1E+3"))).isEqualTo(utf8Slice("1000"));
+        assertThat(encodeValue(VARBINARY, SdkBytes.fromUtf8String("bytes"))).isEqualTo(wrappedBuffer("bytes".getBytes(UTF_8)));
+        assertThat(encodeValue(VARCHAR, new BigDecimal("1E+3"))).isEqualTo(utf8Slice("1000"));
     }
 
     @Test
     void testObjectsNestedTooDeepAreStrings()
     {
         RecursiveShape shape = RecursiveShape.chain(SdkColumns.MAX_NESTING_DEPTH + 2);
-        Object decoded = decode(SdkColumns.type(RecursiveShape.CHILD), SdkRowEncoder.encodeValue(SdkColumns.type(RecursiveShape.CHILD), shape));
+        Object decoded = decode(SdkColumns.type(RecursiveShape.CHILD), encodeValue(SdkColumns.type(RecursiveShape.CHILD), shape));
 
         for (int depth = 1; depth < SdkColumns.MAX_NESTING_DEPTH; depth++) {
             assertThat(decoded).isInstanceOf(Map.class);
@@ -178,8 +180,18 @@ final class TestSdkRowEncoder
 
     private static Object encodedValue(SdkPojo object, String memberName)
     {
-        int index = fieldIndex(object, memberName);
-        return SdkRowEncoder.encodeRow(object, List.of()).get(index);
+        SdkField<?> field = SdkColumns.mappedFields(object.sdkFields()).get(fieldIndex(object, memberName));
+        Type type = SdkColumns.type(field);
+        BlockBuilder output = type.createBlockBuilder(null, 1);
+        SdkRowEncoder.fieldWriter(field).write(new SdkRow(object), output);
+        return readNativeValue(type, output.build(), 0);
+    }
+
+    private static Object encodeValue(Type type, Object value)
+    {
+        BlockBuilder output = type.createBlockBuilder(null, 1);
+        SdkRowEncoder.writeValue(type, output, value);
+        return readNativeValue(type, output.build(), 0);
     }
 
     private static Object decodedValue(SdkPojo object, String memberName)

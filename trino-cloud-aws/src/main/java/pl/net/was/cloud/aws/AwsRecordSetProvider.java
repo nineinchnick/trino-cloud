@@ -16,8 +16,8 @@ package pl.net.was.cloud.aws;
 
 import com.google.common.collect.Iterables;
 import com.google.inject.Inject;
+import io.trino.spi.block.BlockBuilder;
 import io.trino.spi.connector.ColumnHandle;
-import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.ConnectorRecordSetProvider;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.ConnectorSplit;
@@ -26,9 +26,12 @@ import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.connector.InMemoryRecordSet;
 import io.trino.spi.connector.RecordSet;
 import io.trino.spi.type.Type;
+import pl.net.was.cloud.aws.SdkRowEncoder.ColumnWriter;
 
+import java.util.ArrayList;
 import java.util.List;
 
+import static io.trino.spi.type.TypeUtils.readNativeValue;
 import static java.util.Objects.requireNonNull;
 
 public class AwsRecordSetProvider
@@ -57,18 +60,9 @@ public class AwsRecordSetProvider
                 .map(c -> (AwsColumnHandle) c)
                 .toList();
 
-        List<Integer> columnIndexes = restColumnHandles
+        List<ColumnWriter> columnWriters = restColumnHandles
                 .stream()
-                .map(column -> {
-                    int index = 0;
-                    for (ColumnMetadata columnMetadata : awsTable.columns()) {
-                        if (columnMetadata.getName().equalsIgnoreCase(column.name())) {
-                            return index;
-                        }
-                        index++;
-                    }
-                    throw new IllegalStateException("Unknown column: " + column.name());
-                })
+                .map(awsTable::columnWriter)
                 .toList();
 
         List<Type> mappedTypes = restColumnHandles
@@ -79,11 +73,20 @@ public class AwsRecordSetProvider
         //noinspection StaticPseudoFunctionalStyleMethod
         Iterable<List<?>> mappedRows = Iterables.transform(
                 awsTable.rows(tableHandle),
-                row -> columnIndexes
-                        .stream()
-                        .map(row::get)
-                        .toList());
+                row -> encodeRow(row, mappedTypes, columnWriters));
 
         return new InMemoryRecordSet(mappedTypes, mappedRows);
+    }
+
+    private static List<?> encodeRow(SdkRow row, List<Type> types, List<ColumnWriter> columnWriters)
+    {
+        List<Object> values = new ArrayList<>(types.size());
+        for (int i = 0; i < types.size(); i++) {
+            Type type = types.get(i);
+            BlockBuilder output = type.createBlockBuilder(null, 1);
+            columnWriters.get(i).write(row, output);
+            values.add(readNativeValue(type, output.build(), 0));
+        }
+        return values;
     }
 }
