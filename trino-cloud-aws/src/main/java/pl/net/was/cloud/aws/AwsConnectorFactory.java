@@ -11,51 +11,54 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package pl.net.was.cloud.aws;
 
 import com.google.inject.Injector;
 import io.airlift.bootstrap.Bootstrap;
+import io.trino.plugin.base.ConnectorContextModule;
 import io.trino.spi.connector.Connector;
 import io.trino.spi.connector.ConnectorContext;
 import io.trino.spi.connector.ConnectorFactory;
 
 import java.util.Map;
 
+import static com.google.common.base.Throwables.throwIfUnchecked;
+import static io.trino.plugin.base.Versions.checkStrictSpiVersionMatch;
 import static java.util.Objects.requireNonNull;
 
 public class AwsConnectorFactory
         implements ConnectorFactory
 {
-    private final String name;
-
-    public AwsConnectorFactory(String name)
-    {
-        this.name = name;
-    }
-
     @Override
     public String getName()
     {
-        return name;
+        return "aws";
     }
 
     @Override
     public Connector create(String catalogName, Map<String, String> requiredConfig, ConnectorContext context)
     {
         requireNonNull(requiredConfig, "requiredConfig is null");
+        checkStrictSpiVersionMatch(context, this);
 
-        // A plugin is not required to use Guice; it is just very convenient
-        Bootstrap app = new Bootstrap(
-                new AwsModule(
-                        context.getNodeManager(),
-                        context.getTypeManager()));
+        try {
+            // A plugin is not required to use Guice; it is just very convenient
+            Bootstrap app = new Bootstrap(
+                    "io.trino.bootstrap.catalog." + catalogName,
+                    new ConnectorContextModule(catalogName, context),
+                    new AwsModule());
 
-        Injector injector = app
-                .doNotInitializeLogging()
-                .setRequiredConfigurationProperties(requiredConfig)
-                .initialize();
+            Injector injector = app
+                    .doNotInitializeLogging()
+                    .disableSystemProperties()
+                    .setRequiredConfigurationProperties(requiredConfig)
+                    .initialize();
 
-        return injector.getInstance(AwsConnector.class);
+            return injector.getInstance(AwsConnector.class);
+        }
+        catch (Exception e) {
+            throwIfUnchecked(e);
+            throw new RuntimeException(e);
+        }
     }
 }
