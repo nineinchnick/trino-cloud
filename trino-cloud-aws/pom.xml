@@ -55,6 +55,16 @@
         </dependency>
 
         <dependency>
+            <groupId>jakarta.validation</groupId>
+            <artifactId>jakarta.validation-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>auth</artifactId>
+        </dependency>
+
+        <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>aws-core</artifactId>
         </dependency>
@@ -68,6 +78,11 @@
                     <artifactId>netty-nio-client</artifactId>
                 </exclusion>
             </exclusions>
+        </dependency>
+
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>identity-spi</artifactId>
         </dependency>
 
         <dependency>
@@ -92,6 +107,17 @@
         </dependency>
 
         <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>sts</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>netty-nio-client</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <dependency>
             <groupId>io.airlift</groupId>
             <artifactId>configuration-testing</artifactId>
             <version>${dep.airlift.version}</version>
@@ -101,6 +127,13 @@
         <dependency>
             <groupId>io.airlift</groupId>
             <artifactId>log-manager</artifactId>
+            <version>${dep.airlift.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.airlift</groupId>
+            <artifactId>testing</artifactId>
             <version>${dep.airlift.version}</version>
             <scope>test</scope>
         </dependency>
@@ -127,6 +160,16 @@
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <configuration>
+                    <!-- the AWS clients need it at runtime, but only tests reference it directly, to inspect the configured credentials -->
+                    <ignoredNonTestScopedDependencies>
+                        <ignoredDependency>software.amazon.awssdk:identity-spi</ignoredDependency>
+                    </ignoredNonTestScopedDependencies>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-deploy-plugin</artifactId>

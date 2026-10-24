@@ -14,17 +14,90 @@
 
 package pl.net.was.cloud.aws;
 
+import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.NotBlank;
 import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.auth.credentials.AwsCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ec2.Ec2Client;
+import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
 
 import java.net.URI;
 
+import static io.airlift.testing.ValidationAssertions.assertFailsValidation;
+import static io.airlift.testing.ValidationAssertions.assertValidates;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 final class TestAwsConfigValidation
 {
+    @Test
+    void testValidConfigurations()
+    {
+        assertValidates(new AwsConfig());
+        assertValidates(new AwsConfig()
+                .setAccessKey("access")
+                .setSecretKey("secret"));
+        assertValidates(new AwsConfig()
+                .setProfile("production")
+                .setIamRole("arn:aws:iam::123456789012:role/trino")
+                .setExternalId("external"));
+    }
+
+    @Test
+    void testAccessKeyWithoutSecretKey()
+    {
+        assertFailsValidation(
+                new AwsConfig().setAccessKey("access"),
+                "staticCredentialsComplete",
+                "aws.access-key and aws.secret-key must be set together",
+                AssertTrue.class);
+    }
+
+    @Test
+    void testSecretKeyWithoutAccessKey()
+    {
+        assertFailsValidation(
+                new AwsConfig().setSecretKey("secret"),
+                "staticCredentialsComplete",
+                "aws.access-key and aws.secret-key must be set together",
+                AssertTrue.class);
+    }
+
+    @Test
+    void testProfileWithStaticCredentials()
+    {
+        assertFailsValidation(
+                new AwsConfig()
+                        .setProfile("production")
+                        .setAccessKey("access")
+                        .setSecretKey("secret"),
+                "profileExclusiveWithStaticCredentials",
+                "aws.profile cannot be set together with aws.access-key and aws.secret-key",
+                AssertTrue.class);
+    }
+
+    @Test
+    void testExternalIdWithoutIamRole()
+    {
+        assertFailsValidation(
+                new AwsConfig().setExternalId("external"),
+                "externalIdUsedWithIamRole",
+                "aws.external-id can only be set together with aws.iam-role",
+                AssertTrue.class);
+    }
+
+    @Test
+    void testBlankRoleSessionName()
+    {
+        assertFailsValidation(
+                new AwsConfig().setRoleSessionName(" "),
+                "roleSessionName",
+                "must not be blank",
+                NotBlank.class);
+    }
+
     @Test
     void testConfiguredRegion()
     {
@@ -33,6 +106,15 @@ final class TestAwsConfigValidation
         try (Ec2Client client = configurer.configure(Ec2Client.builder()).build()) {
             assertThat(client.serviceClientConfiguration().region()).isEqualTo(Region.EU_CENTRAL_1);
         }
+    }
+
+    @Test
+    void testUnknownRegion()
+    {
+        assertThatThrownBy(() -> new AwsClientConfigurer(new AwsConfig().setRegion("eu-centrall-1")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageStartingWith("Unknown AWS region 'eu-centrall-1', set aws.region to one of: ")
+                .hasMessageContaining("eu-central-1");
     }
 
     @Test
@@ -48,11 +130,33 @@ final class TestAwsConfigValidation
     }
 
     @Test
-    void testUnknownRegion()
+    void testStaticCredentials()
     {
-        assertThatThrownBy(() -> new AwsClientConfigurer(new AwsConfig().setRegion("eu-centrall-1")))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageStartingWith("Unknown AWS region 'eu-centrall-1' in aws.region, expected one of: ")
-                .hasMessageContaining("eu-central-1");
+        AwsClientConfigurer configurer = new AwsClientConfigurer(new AwsConfig()
+                .setRegion("us-east-1")
+                .setAccessKey("access")
+                .setSecretKey("secret"));
+
+        try (Ec2Client client = configurer.configure(Ec2Client.builder()).build()) {
+            StaticCredentialsProvider credentialsProvider = (StaticCredentialsProvider) client.serviceClientConfiguration().credentialsProvider();
+            AwsCredentials credentials = credentialsProvider.resolveCredentials();
+            assertThat(credentials.accessKeyId()).isEqualTo("access");
+            assertThat(credentials.secretAccessKey()).isEqualTo("secret");
+            assertThat(credentialsProvider.toString()).doesNotContain("secret");
+        }
+    }
+
+    @Test
+    void testIamRole()
+    {
+        AwsClientConfigurer configurer = new AwsClientConfigurer(new AwsConfig()
+                .setRegion("us-east-1")
+                .setAccessKey("access")
+                .setSecretKey("secret")
+                .setIamRole("arn:aws:iam::123456789012:role/trino"));
+
+        try (Ec2Client client = configurer.configure(Ec2Client.builder()).build()) {
+            assertThat(client.serviceClientConfiguration().credentialsProvider()).isInstanceOf(StsAssumeRoleCredentialsProvider.class);
+        }
     }
 }
