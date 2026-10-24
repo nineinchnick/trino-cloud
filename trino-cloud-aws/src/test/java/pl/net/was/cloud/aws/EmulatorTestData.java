@@ -15,6 +15,8 @@
 package pl.net.was.cloud.aws;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+import com.google.common.util.concurrent.Futures;
 import io.trino.testing.containers.Floci;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.ec2.Ec2Client;
@@ -26,9 +28,16 @@ import software.amazon.awssdk.services.ec2.model.Tag;
 import software.amazon.awssdk.services.ec2.model.TagSpecification;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
+import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.stream.IntStream;
 
+import static com.google.common.base.Preconditions.checkState;
 import static io.trino.testing.containers.Floci.FLOCI_REGION;
 
 final class EmulatorTestData
@@ -40,6 +49,9 @@ final class EmulatorTestData
     static final String NAME = "trino-test";
     static final String OBJECTS_BUCKET = "trino-test-objects";
     static final String VERSIONED_BUCKET = "trino-test-versioned";
+    static final String MANY_OBJECTS_BUCKET = "trino-test-many-objects";
+    static final int MANY_OBJECTS_LIVE_COUNT = 1100;
+    static final int MANY_OBJECTS_DELETED_COUNT = 1100;
 
     private final String vpcId;
     private final String subnetId;
@@ -151,5 +163,33 @@ final class EmulatorTestData
         s3.putObject(request -> request.bucket(VERSIONED_BUCKET).key("changed.txt"), RequestBody.fromString("v2-longer"));
         s3.putObject(request -> request.bucket(VERSIONED_BUCKET).key("deleted.txt"), RequestBody.fromString("gone"));
         s3.deleteObject(request -> request.bucket(VERSIONED_BUCKET).key("deleted.txt"));
+
+        createManyObjects(s3);
+    }
+
+    // S3 returns at most 1000 keys, versions or delete markers in one response
+    private static void createManyObjects(S3Client s3)
+    {
+        s3.createBucket(request -> request.bucket(MANY_OBJECTS_BUCKET));
+        s3.putBucketVersioning(request -> request
+                .bucket(MANY_OBJECTS_BUCKET)
+                .versioningConfiguration(configuration -> configuration.status(BucketVersioningStatus.ENABLED)));
+        List<String> keys = IntStream.range(0, MANY_OBJECTS_LIVE_COUNT + MANY_OBJECTS_DELETED_COUNT)
+                .mapToObj("key-%05d"::formatted)
+                .toList();
+        try (ExecutorService executor = Executors.newFixedThreadPool(16)) {
+            List<Future<?>> uploads = keys.stream()
+                    .<Future<?>>map(key -> executor.submit(() -> s3.putObject(request -> request.bucket(MANY_OBJECTS_BUCKET).key(key), RequestBody.fromString(key))))
+                    .toList();
+            uploads.forEach(Futures::getUnchecked);
+        }
+        for (List<String> batch : Lists.partition(keys.subList(MANY_OBJECTS_LIVE_COUNT, keys.size()), 1000)) {
+            DeleteObjectsResponse response = s3.deleteObjects(request -> request
+                    .bucket(MANY_OBJECTS_BUCKET)
+                    .delete(delete -> delete.objects(batch.stream()
+                            .map(key -> ObjectIdentifier.builder().key(key).build())
+                            .toList())));
+            checkState(response.errors().isEmpty(), "Failed to delete objects: %s", response.errors());
+        }
     }
 }

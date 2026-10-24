@@ -14,6 +14,7 @@
 package pl.net.was.cloud.aws;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
 import com.google.inject.Inject;
 import io.airlift.slice.Slices;
 import io.trino.spi.TrinoException;
@@ -27,7 +28,6 @@ import pl.net.was.cloud.aws.filters.ImageFilter;
 import pl.net.was.cloud.aws.filters.InstanceFilter;
 import software.amazon.awssdk.core.SdkField;
 import software.amazon.awssdk.core.SdkPojo;
-import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.AttributeValue;
 import software.amazon.awssdk.services.ec2.model.AvailabilityZone;
@@ -36,7 +36,7 @@ import software.amazon.awssdk.services.ec2.model.DeregisterImageRequest;
 import software.amazon.awssdk.services.ec2.model.DescribeImagesRequest;
 import software.amazon.awssdk.services.ec2.model.DescribeInstanceTypesRequest;
 import software.amazon.awssdk.services.ec2.model.DescribeInstancesRequest;
-import software.amazon.awssdk.services.ec2.model.DescribeSnapshotsRequest;
+import software.amazon.awssdk.services.ec2.model.DescribePublicIpv4PoolsRequest;
 import software.amazon.awssdk.services.ec2.model.Filter;
 import software.amazon.awssdk.services.ec2.model.Image;
 import software.amazon.awssdk.services.ec2.model.Instance;
@@ -70,6 +70,7 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
+import software.amazon.awssdk.services.s3.model.ListBucketsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
@@ -95,8 +96,8 @@ import static pl.net.was.cloud.aws.AwsErrorCode.AWS_MISSING_PREDICATE;
 import static pl.net.was.cloud.aws.AwsTable.ROW_ID;
 import static pl.net.was.cloud.aws.PageValues.getValue;
 import static pl.net.was.cloud.aws.SdkColumns.columns;
+import static pl.net.was.cloud.aws.SdkIterables.emptyOnErrorCodes;
 import static pl.net.was.cloud.aws.SdkRowEncoder.encodeRow;
-import static pl.net.was.cloud.aws.SdkRowEncoder.encodeRows;
 
 public class AwsTables
 {
@@ -120,7 +121,7 @@ public class AwsTables
                                 .inserter(new Inserter(CreateImageRequest::builder, request -> ec2.createImage((CreateImageRequest) request)))
                                 .deleter(rowId -> ec2.deregisterImage(DeregisterImageRequest.builder().imageId(rowId).build()))
                                 .build(),
-                        simpleTable("ec2", "instance_types", InstanceTypeInfo.builder().sdkFields(), () -> ec2.describeInstanceTypes(DescribeInstanceTypesRequest.builder().build()).instanceTypes()),
+                        simpleTable("ec2", "instance_types", InstanceTypeInfo.builder().sdkFields(), () -> ec2.describeInstanceTypesPaginator(DescribeInstanceTypesRequest.builder().build()).instanceTypes()),
                         AwsTable.builder(
                                         new SchemaTableName("ec2", "instances"),
                                         columns(List.of(rowIdColumn()), Instance.builder().sdkFields()))
@@ -131,31 +132,31 @@ public class AwsTables
                                 .deleter(rowId -> ec2.terminateInstances(TerminateInstancesRequest.builder().instanceIds(rowId).build()))
                                 .build(),
                         simpleTable("ec2", "key_pairs", KeyPairInfo.builder().sdkFields(), () -> ec2.describeKeyPairs().keyPairs()),
-                        simpleTable("ec2", "launch_templates", LaunchTemplate.builder().sdkFields(), () -> ec2.describeLaunchTemplates().launchTemplates()),
-                        simpleTable("ec2", "nat_gateways", NatGateway.builder().sdkFields(), () -> ec2.describeNatGateways().natGateways()),
-                        simpleTable("ec2", "network_interfaces", NetworkInterface.builder().sdkFields(), () -> ec2.describeNetworkInterfaces().networkInterfaces()),
+                        simpleTable("ec2", "launch_templates", LaunchTemplate.builder().sdkFields(), () -> ec2.describeLaunchTemplatesPaginator().launchTemplates()),
+                        simpleTable("ec2", "nat_gateways", NatGateway.builder().sdkFields(), () -> ec2.describeNatGatewaysPaginator().natGateways()),
+                        simpleTable("ec2", "network_interfaces", NetworkInterface.builder().sdkFields(), () -> ec2.describeNetworkInterfacesPaginator().networkInterfaces()),
                         simpleTable("ec2", "placement_groups", PlacementGroup.builder().sdkFields(), () -> ec2.describePlacementGroups().placementGroups()),
-                        simpleTable("ec2", "prefix_lists", PrefixList.builder().sdkFields(), () -> ec2.describePrefixLists().prefixLists()),
-                        simpleTable("ec2", "public_ipv4_pools", PublicIpv4Pool.builder().sdkFields(), () -> ec2.describePublicIpv4Pools().publicIpv4Pools()),
+                        simpleTable("ec2", "prefix_lists", PrefixList.builder().sdkFields(), () -> ec2.describePrefixListsPaginator().prefixLists()),
+                        simpleTable("ec2", "public_ipv4_pools", PublicIpv4Pool.builder().sdkFields(), () -> ec2.describePublicIpv4PoolsPaginator(DescribePublicIpv4PoolsRequest.builder().build()).publicIpv4Pools()),
                         simpleTable("ec2", "regions", Region.builder().sdkFields(), () -> ec2.describeRegions().regions()),
-                        simpleTable("ec2", "route_tables", RouteTable.builder().sdkFields(), () -> ec2.describeRouteTables().routeTables()),
-                        simpleTable("ec2", "snapshots", Snapshot.builder().sdkFields(), () -> ec2.describeSnapshots(DescribeSnapshotsRequest.builder().maxResults(100).build()).snapshots()),
-                        simpleTable("ec2", "security_groups", SecurityGroup.builder().sdkFields(), () -> ec2.describeSecurityGroups().securityGroups()),
-                        simpleTable("ec2", "subnets", Subnet.builder().sdkFields(), () -> ec2.describeSubnets().subnets()),
-                        simpleTable("ec2", "tags", TagDescription.builder().sdkFields(), () -> ec2.describeTags().tags()),
-                        simpleTable("ec2", "volumes", Volume.builder().sdkFields(), () -> ec2.describeVolumes().volumes()),
-                        simpleTable("ec2", "vpc_endpoints", VpcEndpoint.builder().sdkFields(), () -> ec2.describeVpcEndpoints().vpcEndpoints()),
-                        simpleTable("ec2", "vpc_peering_connections", VpcPeeringConnection.builder().sdkFields(), () -> ec2.describeVpcPeeringConnections().vpcPeeringConnections()),
-                        simpleTable("ec2", "vpcs", Vpc.builder().sdkFields(), () -> ec2.describeVpcs().vpcs()),
+                        simpleTable("ec2", "route_tables", RouteTable.builder().sdkFields(), () -> ec2.describeRouteTablesPaginator().routeTables()),
+                        simpleTable("ec2", "snapshots", Snapshot.builder().sdkFields(), () -> ec2.describeSnapshotsPaginator().snapshots()),
+                        simpleTable("ec2", "security_groups", SecurityGroup.builder().sdkFields(), () -> ec2.describeSecurityGroupsPaginator().securityGroups()),
+                        simpleTable("ec2", "subnets", Subnet.builder().sdkFields(), () -> ec2.describeSubnetsPaginator().subnets()),
+                        simpleTable("ec2", "tags", TagDescription.builder().sdkFields(), () -> ec2.describeTagsPaginator().tags()),
+                        simpleTable("ec2", "volumes", Volume.builder().sdkFields(), () -> ec2.describeVolumesPaginator().volumes()),
+                        simpleTable("ec2", "vpc_endpoints", VpcEndpoint.builder().sdkFields(), () -> ec2.describeVpcEndpointsPaginator().vpcEndpoints()),
+                        simpleTable("ec2", "vpc_peering_connections", VpcPeeringConnection.builder().sdkFields(), () -> ec2.describeVpcPeeringConnectionsPaginator().vpcPeeringConnections()),
+                        simpleTable("ec2", "vpcs", Vpc.builder().sdkFields(), () -> ec2.describeVpcsPaginator().vpcs()),
                         simpleTable("ec2", "vpn_connections", VpnConnection.builder().sdkFields(), () -> ec2.describeVpnConnections().vpnConnections()),
                         simpleTable("ec2", "vpn_gateways", VpnGateway.builder().sdkFields(), () -> ec2.describeVpnGateways().vpnGateways()),
                         AwsTable.builder(new SchemaTableName("s3", "buckets"), columns(Bucket.builder().sdkFields()))
-                                .rowSource((_, _) -> encodeRows(s3.listBuckets().buckets()))
+                                .rowSource((_, _) -> encodeRows(s3.listBucketsPaginator(ListBucketsRequest.builder().build()).buckets(), List.of()))
                                 .inserter(new Inserter(CreateBucketRequest::builder, request -> s3.createBucket((CreateBucketRequest) request)))
                                 .build(),
-                        bucketTable("objects", S3Object.builder().sdkFields(), bucketName -> s3.listObjectsV2(ListObjectsV2Request.builder().bucket(bucketName).build()).contents()),
-                        bucketTable("object_versions", ObjectVersion.builder().sdkFields(), bucketName -> s3.listObjectVersions(ListObjectVersionsRequest.builder().bucket(bucketName).build()).versions()),
-                        bucketTable("deleted_objects", DeleteMarkerEntry.builder().sdkFields(), bucketName -> s3.listObjectVersions(ListObjectVersionsRequest.builder().bucket(bucketName).build()).deleteMarkers()))
+                        bucketTable("objects", S3Object.builder().sdkFields(), bucketName -> s3.listObjectsV2Paginator(ListObjectsV2Request.builder().bucket(bucketName).build()).contents()),
+                        bucketTable("object_versions", ObjectVersion.builder().sdkFields(), bucketName -> s3.listObjectVersionsPaginator(ListObjectVersionsRequest.builder().bucket(bucketName).build()).versions()),
+                        bucketTable("deleted_objects", DeleteMarkerEntry.builder().sdkFields(), bucketName -> s3.listObjectVersionsPaginator(ListObjectVersionsRequest.builder().bucket(bucketName).build()).deleteMarkers()))
                 .collect(toImmutableMap(AwsTable::name, identity()));
     }
 
@@ -178,14 +179,14 @@ public class AwsTables
         return tables.values();
     }
 
-    private static AwsTable simpleTable(String schema, String table, List<SdkField<?>> sdkFields, Supplier<List<? extends SdkPojo>> rows)
+    private static AwsTable simpleTable(String schema, String table, List<SdkField<?>> sdkFields, Supplier<Iterable<? extends SdkPojo>> rows)
     {
         return AwsTable.builder(new SchemaTableName(schema, table), columns(sdkFields))
-                .rowSource((_, _) -> encodeRows(rows.get()))
+                .rowSource((_, _) -> encodeRows(rows.get(), List.of()))
                 .build();
     }
 
-    private static AwsTable bucketTable(String table, List<SdkField<?>> sdkFields, Function<String, List<? extends SdkPojo>> rows)
+    private static AwsTable bucketTable(String table, List<SdkField<?>> sdkFields, Function<String, Iterable<? extends SdkPojo>> rows)
     {
         return AwsTable.builder(
                         new SchemaTableName("s3", table),
@@ -223,18 +224,8 @@ public class AwsTables
         if (imageId == null && name == null && owner == null && handle.limit().isEmpty()) {
             throw new TrinoException(AWS_MISSING_PREDICATE, "Missing a limit or constraint for image_id, name, or owner_id");
         }
-        List<Image> images;
-        try {
-            images = ec2.describeImages(request.build()).images();
-        }
-        catch (SdkException e) {
-            if (AwsErrors.hasErrorCode(e, MISSING_IMAGE_CODES)) {
-                return List.of();
-            }
-            throw e;
-        }
         return encodeRows(
-                images,
+                emptyOnErrorCodes(ec2.describeImagesPaginator(request.build()).images(), MISSING_IMAGE_CODES),
                 List.of(
                         // populate row_id - to support DELETE
                         o -> Slices.utf8Slice(((Image) o).imageId()),
@@ -249,22 +240,10 @@ public class AwsTables
         if (instanceId != null) {
             request.instanceIds(instanceId);
         }
-        List<Reservation> reservations;
-        try {
-            reservations = ec2.describeInstances(request.build()).reservations();
-        }
-        catch (SdkException e) {
-            if (AwsErrors.hasErrorCode(e, MISSING_INSTANCE_CODES)) {
-                return List.of();
-            }
-            throw e;
-        }
-        return reservations
-                .stream()
-                .flatMap(r -> r.instances()
-                        .stream()
-                        .<List<?>>map(i -> encodeRow(i, List.of(o -> Slices.utf8Slice(((Instance) o).instanceId())))))
-                .toList();
+        Iterable<Reservation> reservations = emptyOnErrorCodes(ec2.describeInstancesPaginator(request.build()).reservations(), MISSING_INSTANCE_CODES);
+        return encodeRows(
+                Iterables.concat(Iterables.transform(reservations, Reservation::instances)),
+                List.of(o -> Slices.utf8Slice(((Instance) o).instanceId())));
     }
 
     private static void updateInstance(Ec2Client ec2, String rowId, Function<String, Object> columnValues)
@@ -282,6 +261,11 @@ public class AwsTables
                         .instanceType(AttributeValue.builder().value(desiredInstanceType).build())
                         .instanceId(rowId)
                         .build());
+    }
+
+    private static <T extends SdkPojo> Iterable<List<?>> encodeRows(Iterable<T> objects, List<Function<SdkPojo, Object>> prependValues)
+    {
+        return Iterables.transform(objects, object -> encodeRow(object, prependValues));
     }
 
     private static void requirePredicate(Object value, String name)
