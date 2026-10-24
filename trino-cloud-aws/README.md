@@ -168,29 +168,34 @@ docker exec -it trino trino --catalog aws --schema ec2
 
 # Adding new tables
 
+All tables are defined in [AwsTables](src/main/java/pl/net/was/cloud/aws/AwsTables.java),
+one [AwsTable](src/main/java/pl/net/was/cloud/aws/AwsTable.java) definition per table.
+
 To add a new table that can be read from:
 
-1. Define columns for the new table in the constructor of [AwsMetadata](src/main/java/pl/net/was/cloud/aws/AwsMetadata.java).
-2. Define a function to generate rows in [AwsRecordSetProvider.rowGetters](src/main/java/pl/net/was/cloud/aws/AwsRecordSetProvider.java).
+1. If the table lists a single AWS SDK model, add a `simpleTable(schema, name, Model.builder().sdkFields(), () -> client.describeX().items())` entry.
+   Columns are derived from the SDK model fields.
+2. Otherwise, use `AwsTable.builder(name, columns)` and set a `rowSource`, which generates rows for a table handle.
+   Use `SdkColumns.columns(extraColumns, sdkFields)` to add columns that aren't in the SDK model.
 3. Profit!
 
 > Note: if the corresponding API method requires predicates that don't map to any field in the response,
-> add an extra column, which value will be populated from the predicate in the WHERE clause.
+> add an extra column, set a `filterApplier` that supports it, and populate the column from the predicate in the row source.
+> See the S3 `bucketTable` definitions.
 
 ## INSERT support
 
-To add INSERT support for any table, append new entries to the `fields` and `inserters` properties in the
-[AwsPageSink](src/main/java/pl/net/was/cloud/aws/AwsPageSink.java) class.
-By default, all table columns are optimistically mapped to an AWS SDK request fields.
-Some columns might not have matching fields in a request.
+Set an `inserter` on the table definition, with a supplier of the AWS SDK request builder and a function that executes the request.
+Table columns are mapped to the request fields with the same name.
+Inserting a column that doesn't have a matching field in the request fails.
 
 > Note: if the corresponding API method requires values for fields that don't map to any column,
-> add extra ones, and populate them with nulls in the record set provider.
+> add extra columns, and populate them with nulls in the row source.
 
 ## UPDATE and DELETE support
 
-1. Add a hidden `row_id` column in `AwsMetadata.columns`. The column should be populated with a unique identifier value in `AwsRecordSetProvider.rowGetters`.
-1. Define the primary key in `AwsMetadata.primaryKeys`.
-1. Add an entry to the `updaters` and/or `deleters` maps in [AwsMergeSink](src/main/java/pl/net/was/cloud/aws/AwsMergeSink.java).
+1. Add a hidden `row_id` column to the table columns, and populate it with a unique identifier in the row source.
+   See the `ec2.instances` definition.
+1. Set an `updater` and/or a `deleter` on the table definition. They receive the row ID, and the updater also receives the values of the updated columns.
 
 Updates might perform multiple different API calls, depending on which columns are being set.
