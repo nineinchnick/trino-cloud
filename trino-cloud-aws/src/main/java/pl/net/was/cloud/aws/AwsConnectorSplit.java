@@ -14,44 +14,24 @@
 
 package pl.net.was.cloud.aws;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import io.trino.spi.HostAddress;
 import io.trino.spi.connector.ConnectorSplit;
 
-import java.util.List;
+import static io.airlift.slice.SizeOf.instanceSize;
+import static java.util.Objects.requireNonNull;
 
-public class AwsConnectorSplit
+public record AwsConnectorSplit(AwsTableHandle tableHandle)
         implements ConnectorSplit
 {
-    private final AwsTableHandle tableHandle;
-    private final List<HostAddress> addresses;
+    private static final int INSTANCE_SIZE = instanceSize(AwsConnectorSplit.class);
 
-    @JsonCreator
-    public AwsConnectorSplit(
-            @JsonProperty("tableHandle") AwsTableHandle tableHandle,
-            @JsonProperty("addresses") List<HostAddress> addresses)
+    public AwsConnectorSplit
     {
-        this.tableHandle = tableHandle;
-        this.addresses = addresses;
+        requireNonNull(tableHandle, "tableHandle is null");
     }
 
     @Override
-    public boolean isRemotelyAccessible()
+    public long getRetainedSizeInBytes()
     {
-        return true;
-    }
-
-    @Override
-    @JsonProperty("addresses")
-    public List<HostAddress> getAddresses()
-    {
-        return addresses;
-    }
-
-    @JsonProperty("tableHandle")
-    public AwsTableHandle getTableHandle()
-    {
-        return tableHandle;
+        return INSTANCE_SIZE + tableHandle.getRetainedSizeInBytes();
     }
 }

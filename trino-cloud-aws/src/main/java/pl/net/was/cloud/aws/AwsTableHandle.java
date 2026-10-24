@@ -22,11 +22,15 @@ import io.trino.spi.predicate.TupleDomain;
 import java.util.OptionalLong;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
+import static io.airlift.slice.SizeOf.instanceSize;
+import static io.airlift.slice.SizeOf.sizeOf;
 import static java.util.Objects.requireNonNull;
 
 public record AwsTableHandle(SchemaTableName schemaTableName, TupleDomain<ColumnHandle> constraint, OptionalLong limit)
         implements ConnectorTableHandle
 {
+    private static final int INSTANCE_SIZE = instanceSize(AwsTableHandle.class);
+
     public AwsTableHandle
     {
         requireNonNull(schemaTableName, "schemaTableName is null");
@@ -47,6 +51,14 @@ public record AwsTableHandle(SchemaTableName schemaTableName, TupleDomain<Column
     public AwsTableHandle withLimit(long limit)
     {
         return new AwsTableHandle(schemaTableName, constraint, OptionalLong.of(limit));
+    }
+
+    public long getRetainedSizeInBytes()
+    {
+        return INSTANCE_SIZE
+                + schemaTableName.getRetainedSizeInBytes()
+                + constraint.getRetainedSizeInBytes(column -> ((AwsColumnHandle) column).getRetainedSizeInBytes())
+                + sizeOf(limit);
     }
 
     @Override

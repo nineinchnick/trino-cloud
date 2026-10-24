@@ -17,14 +17,24 @@ package pl.net.was.cloud.aws;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.type.Type;
 
+import static io.airlift.slice.SizeOf.estimatedSizeOf;
+import static io.airlift.slice.SizeOf.instanceSize;
 import static java.util.Objects.requireNonNull;
 
 public record AwsColumnHandle(String name, Type type)
         implements ColumnHandle
 {
+    private static final int INSTANCE_SIZE = instanceSize(AwsColumnHandle.class);
+
     public AwsColumnHandle
     {
         requireNonNull(name, "name is null");
         requireNonNull(type, "type is null");
+    }
+
+    // type instances are shared, so they are not retained by the handle
+    public long getRetainedSizeInBytes()
+    {
+        return INSTANCE_SIZE + estimatedSizeOf(name);
     }
 }
