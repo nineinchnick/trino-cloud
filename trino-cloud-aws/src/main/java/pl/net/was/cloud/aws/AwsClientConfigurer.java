@@ -20,22 +20,29 @@ import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.regions.providers.DefaultAwsRegionProviderChain;
 
+import java.net.URI;
+import java.util.Optional;
+
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.stream.Collectors.joining;
 
 public class AwsClientConfigurer
 {
     private final Region region;
+    private final Optional<URI> endpoint;
 
     @Inject
     public AwsClientConfigurer(AwsConfig config)
     {
         this.region = resolveRegion(config);
+        this.endpoint = config.getEndpoint();
     }
 
     public <B extends AwsClientBuilder<B, ?>> B configure(B builder)
     {
-        return builder.region(region);
+        builder.region(region);
+        endpoint.ifPresent(builder::endpointOverride);
+        return builder;
     }
 
     private static Region resolveRegion(AwsConfig config)
