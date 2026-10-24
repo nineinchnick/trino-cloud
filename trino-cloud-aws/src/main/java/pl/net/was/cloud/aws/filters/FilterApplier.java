@@ -36,6 +36,7 @@ import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -53,6 +54,15 @@ public interface FilterApplier
     Logger log = Logger.get(FilterApplier.class);
 
     Map<String, FilterType> getSupportedFilters();
+
+    /**
+     * Names of supported filters that are pushed down, but Trino still has to apply them,
+     * because AWS can return rows that don't match the filter value.
+     */
+    default Set<String> getUnenforcedFilters()
+    {
+        return Set.of();
+    }
 
     default Optional<ConstraintApplicationResult<ConnectorTableHandle>> applyFilter(
             AwsTableHandle table,
@@ -84,6 +94,9 @@ public interface FilterApplier
             // merge with other pushed down constraints
             currentConstraint = currentConstraint.intersect(newConstraint);
             found = true;
+            if (getUnenforcedFilters().contains(columnName)) {
+                continue;
+            }
             // remove from remaining constraints
             summary = summary.filter(
                     (columnHandle, _) -> !columnHandle.equals(column));

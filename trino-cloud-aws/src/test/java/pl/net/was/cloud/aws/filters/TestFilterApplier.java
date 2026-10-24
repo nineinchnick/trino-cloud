@@ -30,6 +30,7 @@ import pl.net.was.cloud.aws.AwsTableHandle;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static io.airlift.slice.Slices.utf8Slice;
 import static io.trino.spi.type.BigintType.BIGINT;
@@ -81,6 +82,35 @@ final class TestFilterApplier
         AwsTableHandle newTable = (AwsTableHandle) result.orElseThrow().getHandle();
         assertThat(newTable.constraint()).isEqualTo(TupleDomain.withColumnDomains(Map.of(ID, inList)));
         assertThat(FILTER_APPLIER.getFilterValues(ID, newTable.constraint())).containsExactly("a", "b");
+    }
+
+    @Test
+    void testKeepsUnenforcedFilterInRemainingFilter()
+    {
+        FilterApplier filterApplier = new FilterApplier()
+        {
+            @Override
+            public Map<String, FilterType> getSupportedFilters()
+            {
+                return SUPPORTED_FILTERS;
+            }
+
+            @Override
+            public Set<String> getUnenforcedFilters()
+            {
+                return Set.of("id");
+            }
+        };
+        TupleDomain<ColumnHandle> summary = TupleDomain.withColumnDomains(Map.of(ID, Domain.singleValue(VARCHAR, utf8Slice("a"))));
+        AwsTableHandle table = new AwsTableHandle(new SchemaTableName("ec2", "images"));
+
+        Optional<ConstraintApplicationResult<ConnectorTableHandle>> result = filterApplier.applyFilter(table, COLUMNS, SUPPORTED_FILTERS, new Constraint(summary));
+
+        assertThat(result).isPresent();
+        AwsTableHandle newTable = (AwsTableHandle) result.orElseThrow().getHandle();
+        assertThat(newTable.constraint()).isEqualTo(summary);
+        assertThat(result.orElseThrow().getRemainingFilter()).isEqualTo(summary);
+        assertThat(filterApplier.applyFilter(newTable, COLUMNS, SUPPORTED_FILTERS, new Constraint(summary))).isEmpty();
     }
 
     @Test
