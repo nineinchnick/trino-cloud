@@ -15,11 +15,16 @@
 package pl.net.was.cloud.aws;
 
 import io.trino.spi.type.ArrayType;
+import io.trino.spi.type.MapType;
+import io.trino.spi.type.TypeOperators;
 import org.junit.jupiter.api.Test;
+
+import java.util.Optional;
 
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static pl.net.was.cloud.aws.HandleJsonCodecs.roundTrip;
 
 final class TestAwsColumnHandle
@@ -38,6 +43,21 @@ final class TestAwsColumnHandle
         AwsColumnHandle column = new AwsColumnHandle("tags", new ArrayType(VARCHAR));
 
         assertThat(roundTrip(AwsColumnHandle.class, column)).isEqualTo(column);
+    }
+
+    @Test
+    void testMapEntry()
+    {
+        AwsColumnHandle tags = new AwsColumnHandle("tags", new MapType(VARCHAR, BIGINT, new TypeOperators()));
+        AwsColumnHandle entry = AwsColumnHandle.mapEntry(tags, "Name");
+
+        assertThat(entry).isEqualTo(new AwsColumnHandle("tags", BIGINT, Optional.of("Name")));
+        assertThat(entry).isNotEqualTo(new AwsColumnHandle("tags", BIGINT));
+        assertThat(roundTrip(AwsColumnHandle.class, entry)).isEqualTo(entry);
+        assertThat(entry.getRetainedSizeInBytes()).isGreaterThan(tags.getRetainedSizeInBytes());
+        assertThatThrownBy(() -> AwsColumnHandle.mapEntry(new AwsColumnHandle("name", VARCHAR), "Name"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Column name is not a map: varchar");
     }
 
     @Test
