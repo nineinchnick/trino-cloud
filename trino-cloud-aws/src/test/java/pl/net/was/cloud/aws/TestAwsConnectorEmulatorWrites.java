@@ -99,20 +99,19 @@ final class TestAwsConnectorEmulatorWrites
         String instanceId = runInstance(subnetId);
         String otherInstanceId = runInstance(subnetId);
 
-        assertUpdate("UPDATE aws.ec2.instances SET state = MAP(ARRAY['Name'], ARRAY['stopped']) WHERE instance_id = '%s'".formatted(instanceId), 1);
+        assertUpdate("UPDATE aws.ec2.instances SET state = ROW(NULL, 'stopped') WHERE instance_id = '%s'".formatted(instanceId), 1);
         assertThat(instanceState(instanceId)).isEqualTo("stopped");
         assertThat(instanceState(otherInstanceId)).isEqualTo("running");
 
-        // the Name key isn't the first one, and the value isn't at the same position as in the current state
-        assertUpdate("UPDATE aws.ec2.instances SET state = MAP(ARRAY['Code', 'Name'], ARRAY['16', 'running']) WHERE instance_id = '%s'".formatted(instanceId), 1);
+        assertUpdate("UPDATE aws.ec2.instances SET state = ROW(16, 'running') WHERE instance_id = '%s'".formatted(instanceId), 1);
         assertThat(instanceState(instanceId)).isEqualTo("running");
 
         assertQueryFails(
-                "UPDATE aws.ec2.instances SET state = MAP(ARRAY['Name'], ARRAY['rebooting']) WHERE instance_id = '%s'".formatted(instanceId),
+                "UPDATE aws.ec2.instances SET state = ROW(NULL, 'rebooting') WHERE instance_id = '%s'".formatted(instanceId),
                 "Updates of ec2.instances.state column to rebooting are not supported");
         assertQueryFails(
-                "UPDATE aws.ec2.instances SET state = MAP(ARRAY['Code'], ARRAY['80']) WHERE instance_id = '%s'".formatted(instanceId),
-                "Updates of ec2.instances.state column require a map with a Name key, like MAP\\(ARRAY\\['Name'], ARRAY\\['stopped']\\)");
+                "UPDATE aws.ec2.instances SET state = ROW(80, NULL) WHERE instance_id = '%s'".formatted(instanceId),
+                "Updates of ec2.instances.state column require a row with a name, like ROW\\(NULL, 'stopped'\\)");
         assertThat(instanceState(instanceId)).isEqualTo("running");
         assertThat(instanceState(otherInstanceId)).isEqualTo("running");
     }
@@ -128,7 +127,7 @@ final class TestAwsConnectorEmulatorWrites
         assertUpdate("UPDATE aws.ec2.instances SET instance_type = 't3.small' WHERE instance_id = '%s'".formatted(instanceId), 1);
 
         assertQuery(
-                "SELECT instance_type, state['Name'] FROM aws.ec2.instances WHERE instance_id = '%s'".formatted(instanceId),
+                "SELECT instance_type, state.name FROM aws.ec2.instances WHERE instance_id = '%s'".formatted(instanceId),
                 "VALUES ('t3.small', 'stopped')");
     }
 
@@ -167,7 +166,7 @@ final class TestAwsConnectorEmulatorWrites
                 "DELETE FROM aws.ec2.images WHERE owner_id = '%s'".formatted(IMAGE_OWNER_ID),
                 "Deletes and updates on ec2.images require a filter on image_id, like WHERE image_id = '...'");
 
-        assertQuery("SELECT count(*) FROM aws.ec2.instances WHERE %s AND state['Name'] = 'running'".formatted(subnetFilter), "VALUES 2");
+        assertQuery("SELECT count(*) FROM aws.ec2.instances WHERE %s AND state.name = 'running'".formatted(subnetFilter), "VALUES 2");
         assertQuery("SELECT count(*) FROM aws.ec2.images WHERE image_id = '%s'".formatted(IMAGE_ID), "VALUES 1");
     }
 
@@ -186,7 +185,7 @@ final class TestAwsConnectorEmulatorWrites
 
     private String instanceState(String instanceId)
     {
-        return (String) computeScalar("SELECT state['Name'] FROM aws.ec2.instances WHERE instance_id = '%s'".formatted(instanceId));
+        return (String) computeScalar("SELECT state.name FROM aws.ec2.instances WHERE instance_id = '%s'".formatted(instanceId));
     }
 
     private String createSubnet()
