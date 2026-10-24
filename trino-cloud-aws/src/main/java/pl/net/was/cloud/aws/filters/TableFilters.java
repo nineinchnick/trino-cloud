@@ -28,6 +28,7 @@ import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.predicate.Domain;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.predicate.ValueSet;
+import io.trino.spi.type.MapType;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.VarcharType;
 import pl.net.was.cloud.aws.AwsColumnHandle;
@@ -43,6 +44,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
@@ -55,6 +57,7 @@ import static io.trino.spi.type.IntegerType.INTEGER;
 import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 import static java.util.function.Function.identity;
+import static pl.net.was.cloud.aws.filters.MapEntryPredicates.mapEntryDomains;
 
 /**
  * The column filters of a table, bound to its columns and to the members of its AWS request.
@@ -119,20 +122,18 @@ public final class TableFilters
         TupleDomain<ColumnHandle> remainingFilter = summary;
         boolean found = false;
         for (BoundFilter filter : filters) {
-            Optional<Domain> domain = pushableDomain(filter, summary);
-            if (domain.isEmpty()) {
-                continue;
-            }
-            AwsColumnHandle column = filter.column();
-            // pushing down the same predicate again would make the planner loop, and the engine applies a different one
-            if (currentDomains.containsKey(column)) {
-                log.debug("Not pushing down filter on %s because a filter was already pushed down: %s", column.name(), domain.get());
-                continue;
-            }
-            pushedConstraint = pushedConstraint.intersect(TupleDomain.withColumnDomains(Map.of(column, domain.get())));
-            found = true;
-            if (filter.filter().enforced()) {
-                remainingFilter = remainingFilter.filter((columnHandle, _) -> !columnHandle.equals(column));
+            for (Map.Entry<AwsColumnHandle, Domain> pushable : pushableDomains(filter, constraint).entrySet()) {
+                AwsColumnHandle column = pushable.getKey();
+                // pushing down the same predicate again would make the planner loop, and the engine applies a different one
+                if (currentDomains.containsKey(column)) {
+                    log.debug("Not pushing down filter on %s because a filter was already pushed down: %s", column, pushable.getValue());
+                    continue;
+                }
+                pushedConstraint = pushedConstraint.intersect(TupleDomain.withColumnDomains(Map.of(column, pushable.getValue())));
+                found = true;
+                if (filter.filter().enforced()) {
+                    remainingFilter = remainingFilter.filter((columnHandle, _) -> !columnHandle.equals(column));
+                }
             }
         }
         if (!found) {
@@ -158,8 +159,11 @@ public final class TableFilters
         Set<String> filteredColumns = domains.keySet().stream()
                 .map(column -> ((AwsColumnHandle) column).name())
                 .collect(toImmutableSet());
+        // a filter on map entries divides the scan by the values of every filtered entry, and without a filter on its entries, it doesn't divide the scan
         List<List<TupleDomain<ColumnHandle>>> columnBatches = filters.stream()
-                .map(filter -> columnBatches(filter, Optional.ofNullable(domains.get(filter.column())), filteredColumns))
+                .flatMap(filter -> filter.filter().kind() == ColumnFilter.Kind.TAG_FILTERS
+                        ? filterDomains(filter, domains).entrySet().stream().map(entry -> columnBatches(filter, entry.getKey(), Optional.of(entry.getValue()), filteredColumns))
+                        : Stream.of(columnBatches(filter, filter.column(), Optional.ofNullable(domains.get(filter.column())), filteredColumns)))
                 .collect(toImmutableList());
         return Lists.cartesianProduct(columnBatches).stream()
                 .map(batches -> batches.stream().reduce(TupleDomain.all(), TupleDomain::intersect))
@@ -174,19 +178,15 @@ public final class TableFilters
         Map<ColumnHandle, Domain> domains = constraint.getDomains().orElseThrow(() -> new IllegalArgumentException("Constraint matches no rows"));
         ImmutableList.Builder<Filter> ec2Filters = ImmutableList.builder();
         for (BoundFilter filter : filters) {
-            Domain domain = domains.get(filter.column());
-            if (domain == null) {
-                continue;
-            }
-            switch (filter.filter().kind()) {
-                case REQUEST_MEMBER -> setMember(filter, request, domain);
-                case EC2_FILTER -> ec2Filters.add(Filter.builder()
-                        .name(filter.filter().target())
-                        .values(ec2FilterValues(domain))
-                        .build());
-                // the partition chooses the client, so it's not a part of the request
-                case PARTITION -> {}
-            }
+            filterDomains(filter, domains).forEach((column, domain) -> {
+                switch (filter.filter().kind()) {
+                    case REQUEST_MEMBER -> setMember(filter, request, domain);
+                    case EC2_FILTER -> ec2Filters.add(ec2Filter(filter.filter().target(), domain));
+                    case TAG_FILTERS -> ec2Filters.add(ec2Filter("tag:" + column.mapKey().orElseThrow(), domain));
+                    // the partition chooses the client, so it's not a part of the request
+                    case PARTITION -> {}
+                }
+            });
         }
         List<Filter> builtFilters = ec2Filters.build();
         if (!builtFilters.isEmpty()) {
@@ -256,11 +256,31 @@ public final class TableFilters
                 checkArgument(isEc2FilterType(type), "Column %s for EC2 filter %s has an unsupported type: %s", column.name(), filter.target(), type);
                 yield new BoundFilter(filter, column, Optional.empty(), BATCH_SIZE);
             }
+            case TAG_FILTERS -> {
+                checkArgument(ec2FiltersMember.isPresent(), "Request of %s does not have EC2 filters for the tag filters on %s", table, column.name());
+                checkArgument(
+                        type instanceof MapType mapType && mapType.getKeyType() instanceof VarcharType && mapType.getValueType() instanceof VarcharType,
+                        "Column %s for tag filters is not a map with varchar keys and values: %s",
+                        column.name(),
+                        type);
+                yield new BoundFilter(filter, column, Optional.empty(), BATCH_SIZE);
+            }
             case PARTITION -> {
                 checkArgument(type instanceof VarcharType, "Partition column %s is not a varchar: %s", column.name(), type);
                 yield new BoundFilter(filter, column, Optional.empty(), 1);
             }
         };
+    }
+
+    // predicates on map entries are not a part of the summary, which only has domains of whole columns
+    private static Map<AwsColumnHandle, Domain> pushableDomains(BoundFilter filter, Constraint constraint)
+    {
+        if (filter.filter().kind() == ColumnFilter.Kind.TAG_FILTERS) {
+            return mapEntryDomains(constraint, filter.column());
+        }
+        return pushableDomain(filter, constraint.getSummary())
+                .map(domain -> Map.of(filter.column(), domain))
+                .orElse(Map.of());
     }
 
     // predicates that allow NULL values are not pushed down, because AWS never returns rows without the filtered values
@@ -277,10 +297,22 @@ public final class TableFilters
         return Optional.of(domain);
     }
 
-    // a column that doesn't divide the scan has a single batch without a constraint
-    private static List<TupleDomain<ColumnHandle>> columnBatches(BoundFilter filter, Optional<Domain> filteredDomain, Set<String> filteredColumns)
+    // the domains of the column of the filter, or of the entries of its map column
+    private static Map<AwsColumnHandle, Domain> filterDomains(BoundFilter filter, Map<ColumnHandle, Domain> domains)
     {
-        AwsColumnHandle column = filter.column();
+        if (filter.filter().kind() != ColumnFilter.Kind.TAG_FILTERS) {
+            return Optional.ofNullable(domains.get(filter.column()))
+                    .map(domain -> Map.of(filter.column(), domain))
+                    .orElse(Map.of());
+        }
+        return domains.entrySet().stream()
+                .filter(entry -> entry.getKey() instanceof AwsColumnHandle column && column.name().equals(filter.column().name()) && column.mapKey().isPresent())
+                .collect(toImmutableMap(entry -> (AwsColumnHandle) entry.getKey(), Map.Entry::getValue));
+    }
+
+    // a column that doesn't divide the scan has a single batch without a constraint
+    private static List<TupleDomain<ColumnHandle>> columnBatches(BoundFilter filter, AwsColumnHandle column, Optional<Domain> filteredDomain, Set<String> filteredColumns)
+    {
         Optional<Supplier<List<String>>> knownValues = filter.filter().knownValues();
         Optional<Domain> domain = filteredDomain
                 .map(filtered -> knownValues
@@ -344,11 +376,14 @@ public final class TableFilters
         return value;
     }
 
-    private static List<String> ec2FilterValues(Domain domain)
+    private static Filter ec2Filter(String name, Domain domain)
     {
-        return domain.getValues().getDiscreteSet().stream()
-                .map(value -> value instanceof Slice slice ? slice.toStringUtf8() : value.toString())
-                .collect(toImmutableList());
+        return Filter.builder()
+                .name(name)
+                .values(domain.getValues().getDiscreteSet().stream()
+                        .map(value -> value instanceof Slice slice ? slice.toStringUtf8() : value.toString())
+                        .collect(toImmutableList()))
+                .build();
     }
 
     private static Optional<Object> singleValue(AwsColumnHandle column, TupleDomain<ColumnHandle> constraint)

@@ -32,6 +32,12 @@ import static java.util.Objects.requireNonNull;
  */
 public final class ColumnFilter
 {
+    /**
+     * The name of the EC2 filters on the values of tags with a given key, as listed in the AWS API reference.
+     */
+    public static final String TAG_FILTERS = "tag:<key>";
+    private static final String TAGS_COLUMN = "tags";
+
     private final String column;
     private final Kind kind;
     private final Optional<String> target;
@@ -74,14 +80,24 @@ public final class ColumnFilter
     }
 
     /**
-     * EC2 filters on the columns with the same name in snake case, like vpc_id for vpc-id. The names of the filters accepted by an EC2 API operation
-     * are not a part of the SDK model, so every table declares them, as listed in the AWS API reference.
+     * EC2 filters on the columns with the same name in snake case, like vpc_id for vpc-id, and tag filters on the tags column for {@link #TAG_FILTERS}.
+     * The names of the filters accepted by an EC2 API operation are not a part of the SDK model, so every table declares them, as listed in the AWS API reference.
      */
     public static List<ColumnFilter> ec2Filters(String... filterNames)
     {
         return Stream.of(filterNames)
-                .map(filterName -> ec2Filter(filterName.replace('-', '_'), filterName))
+                .map(filterName -> filterName.equals(TAG_FILTERS) ? tagFilters(TAGS_COLUMN) : ec2Filter(filterName.replace('-', '_'), filterName))
                 .collect(toImmutableList());
+    }
+
+    /**
+     * Adds an EC2 filter for every key of the map column used in equality and IN predicates, like tag:Name for tags['Name'] = 'value'.
+     * EC2 filter values treat * and ? as wildcards, and the engine only removes predicates on whole columns from the filter it applies,
+     * so Trino still applies the predicate.
+     */
+    public static ColumnFilter tagFilters(String column)
+    {
+        return new Builder(column, Kind.TAG_FILTERS, Optional.empty(), false).build();
     }
 
     /**
@@ -193,6 +209,7 @@ public final class ColumnFilter
     {
         REQUEST_MEMBER,
         EC2_FILTER,
+        TAG_FILTERS,
         PARTITION,
     }
 
