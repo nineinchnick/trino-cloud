@@ -19,6 +19,7 @@ import com.google.common.collect.Lists;
 import com.google.inject.Inject;
 import io.airlift.slice.Slices;
 import io.trino.spi.TrinoException;
+import io.trino.spi.block.Block;
 import io.trino.spi.block.SqlMap;
 import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.SchemaTableName;
@@ -91,6 +92,7 @@ import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
+import static io.trino.spi.StandardErrorCode.INVALID_ARGUMENTS;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.StandardErrorCode.TABLE_NOT_FOUND;
 import static io.trino.spi.type.VarcharType.VARCHAR;
@@ -98,7 +100,6 @@ import static java.util.Objects.requireNonNull;
 import static java.util.function.Function.identity;
 import static pl.net.was.cloud.aws.AwsErrorCode.AWS_MISSING_PREDICATE;
 import static pl.net.was.cloud.aws.AwsTable.ROW_ID;
-import static pl.net.was.cloud.aws.PageValues.getValue;
 import static pl.net.was.cloud.aws.SdkColumns.columns;
 import static pl.net.was.cloud.aws.SdkIterables.emptyOnErrorCodes;
 import static pl.net.was.cloud.aws.SdkRowEncoder.encodeRow;
@@ -315,7 +316,7 @@ public class AwsTables
         if (!values.containsKey("state")) {
             return;
         }
-        String desiredState = (String) getValue(VARCHAR, 1, ((SqlMap) values.get("state")).getRawKeyBlock());
+        String desiredState = getStateName((SqlMap) values.get("state"));
         switch (desiredState) {
             case "running" -> ec2.startInstances(StartInstancesRequest.builder().instanceIds(rowId).build());
             case "stopped" -> ec2.stopInstances(StopInstancesRequest.builder().instanceIds(rowId).build());
@@ -326,6 +327,24 @@ public class AwsTables
     private static <T extends SdkPojo> Iterable<List<?>> encodeRows(Iterable<T> objects, List<Function<SdkPojo, Object>> prependValues)
     {
         return Iterables.transform(objects, object -> encodeRow(object, prependValues));
+    }
+
+    // TODO #18 the state column should be a VARCHAR with the state name
+    private static String getStateName(SqlMap state)
+    {
+        Block keys = state.getRawKeyBlock();
+        Block values = state.getRawValueBlock();
+        for (int i = 0; i < state.getSize(); i++) {
+            int position = state.getRawOffset() + i;
+            if (!VARCHAR.getSlice(keys, position).toStringUtf8().equals("Name")) {
+                continue;
+            }
+            if (values.isNull(position)) {
+                break;
+            }
+            return VARCHAR.getSlice(values, position).toStringUtf8();
+        }
+        throw new TrinoException(INVALID_ARGUMENTS, "Updates of ec2.instances.state column require a map with a Name key, like MAP(ARRAY['Name'], ARRAY['stopped'])");
     }
 
     private static void requirePredicate(Object value, String name)

@@ -93,6 +93,31 @@ final class TestAwsConnectorEmulatorWrites
     }
 
     @Test
+    void testUpdateState()
+    {
+        String subnetId = createSubnet();
+        String instanceId = runInstance(subnetId);
+        String otherInstanceId = runInstance(subnetId);
+
+        assertUpdate("UPDATE aws.ec2.instances SET state = MAP(ARRAY['Name'], ARRAY['stopped']) WHERE instance_id = '%s'".formatted(instanceId), 1);
+        assertThat(instanceState(instanceId)).isEqualTo("stopped");
+        assertThat(instanceState(otherInstanceId)).isEqualTo("running");
+
+        // the Name key isn't the first one, and the value isn't at the same position as in the current state
+        assertUpdate("UPDATE aws.ec2.instances SET state = MAP(ARRAY['Code', 'Name'], ARRAY['16', 'running']) WHERE instance_id = '%s'".formatted(instanceId), 1);
+        assertThat(instanceState(instanceId)).isEqualTo("running");
+
+        assertQueryFails(
+                "UPDATE aws.ec2.instances SET state = MAP(ARRAY['Name'], ARRAY['rebooting']) WHERE instance_id = '%s'".formatted(instanceId),
+                "Updates of ec2.instances.state column to rebooting are not supported");
+        assertQueryFails(
+                "UPDATE aws.ec2.instances SET state = MAP(ARRAY['Code'], ARRAY['80']) WHERE instance_id = '%s'".formatted(instanceId),
+                "Updates of ec2.instances.state column require a map with a Name key, like MAP\\(ARRAY\\['Name'], ARRAY\\['stopped']\\)");
+        assertThat(instanceState(instanceId)).isEqualTo("running");
+        assertThat(instanceState(otherInstanceId)).isEqualTo("running");
+    }
+
+    @Test
     void testUpdateInstanceType()
     {
         String subnetId = createSubnet();

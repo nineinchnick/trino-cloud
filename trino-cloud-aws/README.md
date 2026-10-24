@@ -102,13 +102,15 @@ The `ec2.instances` table also has limited `UPDATE` and `DELETE` support.
 `UPDATE` and `DELETE` require a filter on the primary key column, like `WHERE instance_id = '...'`,
 so a single statement can't change or remove every resource at once.
 
-> Warning: `UPDATE` and `DELETE` are currently broken and fail for every row,
-> see [#283](https://github.com/nineinchnick/trino-cloud/issues/283).
-> The examples below show how they're meant to work after it's fixed.
-
-To stop an instance, update the instance row:
+Only the `state` and `instance_type` columns can be updated.
+To stop or start an instance, set its state name to `stopped` or `running`:
 ```sql
 UPDATE ec2.instances SET state = MAP(ARRAY['Name'], ARRAY['stopped']) WHERE instance_id = 'i-04a7cf7ca232cd251';
+```
+
+To change the instance type, stop the instance first, because AWS only allows it for stopped instances:
+```sql
+UPDATE ec2.instances SET instance_type = 't3.small' WHERE instance_id = 'i-04a7cf7ca232cd251';
 ```
 
 To terminate it, delete the row:
@@ -312,6 +314,8 @@ Inserting a column that doesn't have a matching field in the request fails.
 
 1. Add a hidden `row_id` column to the table columns, and populate it with a unique identifier in the row source.
    See the `ec2.instances` definition.
+1. Set the `primaryKey` column, which `UPDATE` and `DELETE` statements must filter on, so the filter applier must support it.
 1. Set an `updater` and/or a `deleter` on the table definition. They receive the row ID, and the updater also receives the values of the updated columns.
+   The updater lists the columns it supports, and updating other columns is rejected when planning the query.
 
 Updates might perform multiple different API calls, depending on which columns are being set.
