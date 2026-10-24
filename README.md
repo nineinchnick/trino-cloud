@@ -45,9 +45,9 @@ connector.name=aws
 aws.region=${ENV:AWS_REGION}
 ```
 
-The connector reads credentials using the AWS SDK default credentials provider chain.
-All catalogs in one Trino server use the same credentials, so you can't use multiple AWS accounts at the same time yet,
-see [#281](https://github.com/nineinchnick/trino-cloud/issues/281).
+By default, the connector reads credentials using the AWS SDK default credentials provider chain.
+Each catalog can set its own credentials, so you can use multiple AWS accounts at the same time.
+See the [connector configuration](trino-cloud-aws/README.md#configuration) for all properties.
 
 After restarting Trino, you should be able to connect to the `aws` catalog.
 

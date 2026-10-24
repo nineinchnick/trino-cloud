@@ -99,11 +99,25 @@ DELETE FROM ec2.instances WHERE instance_id = 'i-04a7cf7ca232cd251';
 
 The following configuration options are recognized by this connector:
 
-* `region`
+| Property name           | Description                                                                                                                                     | Default                               |
+|-------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------|
+| `aws.region`            | AWS region of the EC2 and S3 endpoints, like `eu-central-1`. Unknown region names are rejected when the catalog is created. Replaces `region`.  | Region from the AWS SDK default chain |
+| `aws.endpoint`          | Endpoint URL that overrides the AWS service endpoints, for example `http://localhost:4566` for an emulator. Enables S3 path-style access.       |                                       |
+| `aws.access-key`        | AWS access key ID. Requires `aws.secret-key`.                                                                                                   |                                       |
+| `aws.secret-key`        | AWS secret access key. Requires `aws.access-key`.                                                                                               |                                       |
+| `aws.profile`           | Name of a profile from the AWS shared `~/.aws/config` and `~/.aws/credentials` files. Can't be used with `aws.access-key` and `aws.secret-key`. |                                       |
+| `aws.iam-role`          | ARN of an IAM role to assume using STS, with the credentials from the other properties.                                                         |                                       |
+| `aws.external-id`       | External ID required by the trust policy of the role set in `aws.iam-role`. Requires `aws.iam-role`.                                            |                                       |
+| `aws.role-session-name` | Session name used when assuming the role set in `aws.iam-role`.                                                                                 | `trino-cloud`                         |
+
+If `aws.region` is not set, the connector uses the
+[AWS SDK default region provider chain](https://docs.aws.amazon.com/sdk-for-java/latest/developer-guide/region-selection.html),
+which reads the `AWS_REGION` environment variable, the `aws.region` Java system property, or the region of the AWS profile.
+If no region can be resolved, creating the catalog fails.
 
 ## Credentials
 
-The connector reads credentials using the
+Without `aws.access-key`, `aws.secret-key` or `aws.profile`, the connector reads credentials using the
 [AWS SDK default credentials provider chain](https://docs.aws.amazon.com/sdk-for-java/latest/developer-guide/credentials-chain.html).
 It checks, in order: Java system properties, environment variables like `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
 and `AWS_SESSION_TOKEN`, web identity tokens, the shared `~/.aws/credentials` and `~/.aws/config` files,
@@ -123,8 +137,24 @@ docker run \
 
 For SSO profiles, run `aws sso login --profile my-profile` first, so the cached token is valid.
 
-All catalogs in one Trino server use the same credentials, so you can't use multiple AWS accounts at the same time yet,
-see [#281](https://github.com/nineinchnick/trino-cloud/issues/281).
+Each catalog can use different credentials, so one Trino server can query multiple AWS accounts at the same time.
+For example, create a `production.properties` catalog file that uses a profile:
+```
+connector.name=aws
+aws.region=eu-central-1
+aws.profile=production
+```
+
+And a `staging.properties` catalog file that assumes a role in another account:
+```
+connector.name=aws
+aws.region=eu-west-1
+aws.iam-role=arn:aws:iam::123456789012:role/trino-readonly
+aws.external-id=${ENV:STAGING_EXTERNAL_ID}
+```
+
+Avoid putting secret keys directly in catalog files. Use environment variables instead, like
+`aws.secret-key=${ENV:STAGING_SECRET_KEY}`. Trino masks the value of `aws.secret-key` when it logs the configuration.
 
 # Build
 
