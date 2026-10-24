@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.services.s3.model.S3Object;
 
 import java.util.List;
+import java.util.Map;
 
 import static io.airlift.slice.Slices.utf8Slice;
 import static io.trino.spi.type.BigintType.BIGINT;
@@ -36,7 +37,7 @@ final class TestSdkTableColumns
     void testDerivedColumnsArePlacedBeforeOrAfterFieldColumns()
     {
         SdkTableColumns columns = SdkTableColumns.builder(S3Object.builder().sdkFields())
-                .prepend(new ColumnMetadata("bucket_name", VARCHAR), SdkRow::context)
+                .prepend(new ColumnMetadata("bucket_name", VARCHAR), row -> row.requestValue("bucket_name"))
                 .insertAfter("key", new ColumnMetadata("key_length", BIGINT), row -> (long) ((S3Object) row.object()).key().length())
                 .insertAfter("key", new ColumnMetadata("upper_key", VARCHAR), row -> utf8Slice(((S3Object) row.object()).key().toUpperCase(ENGLISH)))
                 .build();
@@ -45,7 +46,7 @@ final class TestSdkTableColumns
         assertThat(names).startsWith("bucket_name", "key", "key_length", "upper_key", "last_modified");
         assertThat(columns.columnWriters()).hasSameSizeAs(names);
 
-        SdkRow row = new SdkRow(S3Object.builder().key("a/b").size(3L).build(), utf8Slice("bucket"));
+        SdkRow row = new SdkRow(S3Object.builder().key("a/b").size(3L).build(), Map.of("bucket_name", utf8Slice("bucket")));
         assertThat(encode(columns, row, names.indexOf("bucket_name"))).isEqualTo(utf8Slice("bucket"));
         assertThat(encode(columns, row, names.indexOf("key"))).isEqualTo(utf8Slice("a/b"));
         assertThat(encode(columns, row, names.indexOf("key_length"))).isEqualTo(3L);
@@ -58,7 +59,7 @@ final class TestSdkTableColumns
     void testDerivedColumnValueCanBeNull()
     {
         SdkTableColumns columns = SdkTableColumns.builder(S3Object.builder().sdkFields())
-                .prepend(new ColumnMetadata("bucket_name", VARCHAR), SdkRow::context)
+                .prepend(new ColumnMetadata("bucket_name", VARCHAR), row -> row.requestValue("bucket_name"))
                 .build();
 
         assertThat(encode(columns, new SdkRow(S3Object.builder().build()), 0)).isNull();

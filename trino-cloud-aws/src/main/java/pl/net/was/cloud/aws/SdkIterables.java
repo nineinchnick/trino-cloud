@@ -38,11 +38,14 @@ final class SdkIterables
         });
     }
 
-    static <T> Iterable<T> translateErrors(Iterable<T> items, String region)
+    /**
+     * The request name describes the failed request in the error message, like AWS request in region us-east-1.
+     */
+    static <T> Iterable<T> translateErrors(Iterable<T> items, String requestName)
     {
-        requireNonNull(region, "region is null");
+        requireNonNull(requestName, "requestName is null");
         return handleErrors(items, e -> {
-            throw AwsErrors.translateInRegion(e, region);
+            throw AwsErrors.translate(e, requestName);
         });
     }
 

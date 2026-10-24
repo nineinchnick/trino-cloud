@@ -38,7 +38,7 @@ import static pl.net.was.cloud.aws.EmulatorTestData.MANY_OBJECTS_LIVE_COUNT;
 import static pl.net.was.cloud.aws.EmulatorTestData.NAME;
 import static pl.net.was.cloud.aws.EmulatorTestData.OBJECTS_BUCKET;
 import static pl.net.was.cloud.aws.EmulatorTestData.VERSIONED_BUCKET;
-import static pl.net.was.cloud.aws.filters.FilterApplier.ID_BATCH_SIZE;
+import static pl.net.was.cloud.aws.filters.TableFilters.BATCH_SIZE;
 
 final class TestAwsConnectorEmulator
         extends AbstractTestQueryFramework
@@ -167,7 +167,7 @@ final class TestAwsConnectorEmulator
     {
         List<String> instanceIds = ImmutableList.<String>builder()
                 .addAll(testData.instanceIds())
-                .addAll(IntStream.range(0, 2 * ID_BATCH_SIZE)
+                .addAll(IntStream.range(0, 2 * BATCH_SIZE)
                         .mapToObj("i-%017x"::formatted)
                         .toList())
                 .build();
@@ -333,7 +333,7 @@ final class TestAwsConnectorEmulator
     {
         List<String> imageIds = ImmutableList.<String>builder()
                 .add(IMAGE_ID, testData.ownImageId())
-                .addAll(IntStream.range(0, ID_BATCH_SIZE)
+                .addAll(IntStream.range(0, BATCH_SIZE)
                         .mapToObj("not-an-image-id-%d"::formatted)
                         .toList())
                 .build();

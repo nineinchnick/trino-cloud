@@ -30,6 +30,7 @@ import software.amazon.awssdk.services.s3.model.S3Object;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 
@@ -141,7 +142,7 @@ final class TestAwsPageSource
         AwsTable table = tableBuilder()
                 .rowSource((_, _) -> {
                     requests.incrementAndGet();
-                    return Iterables.transform(List.of(S3Object.builder().key("a").build()), object -> new SdkRow(object, utf8Slice("bucket")));
+                    return Iterables.transform(List.of(S3Object.builder().key("a").build()), object -> new SdkRow(object, Map.of("bucket_name", utf8Slice("bucket"))));
                 })
                 .build();
         AwsPageSource pageSource = pageSource(table, "key");
@@ -157,7 +158,7 @@ final class TestAwsPageSource
     {
         AwsTable table = tableBuilder()
                 .rowSource((_, _) -> () -> Iterators.concat(
-                        List.of(new SdkRow(S3Object.builder().key("a").build(), utf8Slice("bucket"))).iterator(),
+                        List.of(new SdkRow(S3Object.builder().key("a").build(), Map.of("bucket_name", utf8Slice("bucket")))).iterator(),
                         failingIterator("NoSuchBucket")))
                 .build();
         AwsPageSource pageSource = pageSource(table, "key");
@@ -210,7 +211,7 @@ final class TestAwsPageSource
     private static AwsTable table(List<S3Object> objects)
     {
         return tableBuilder()
-                .rowSource((_, _) -> Iterables.transform(objects, object -> new SdkRow(object, utf8Slice("bucket"))))
+                .rowSource((_, _) -> Iterables.transform(objects, object -> new SdkRow(object, Map.of("bucket_name", utf8Slice("bucket")))))
                 .build();
     }
 
@@ -219,7 +220,7 @@ final class TestAwsPageSource
         return AwsTable.builder(
                 TABLE_NAME,
                 SdkTableColumns.builder(S3Object.builder().sdkFields())
-                        .prepend(new ColumnMetadata("bucket_name", VARCHAR), SdkRow::context)
+                        .prepend(new ColumnMetadata("bucket_name", VARCHAR), row -> row.requestValue("bucket_name"))
                         .build());
     }
 

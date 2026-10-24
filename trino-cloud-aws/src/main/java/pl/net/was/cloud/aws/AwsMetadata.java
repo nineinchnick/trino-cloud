@@ -310,10 +310,6 @@ public class AwsMetadata
     {
         AwsTableHandle tableHandle = (AwsTableHandle) table;
         AwsTable awsTable = tables.require(tableHandle.schemaTableName());
-        return awsTable.filterApplier().flatMap(filterApplier -> filterApplier.applyFilter(
-                tableHandle,
-                awsTable.columnHandles(),
-                filterApplier.getSupportedFilters(),
-                constraint));
+        return awsTable.filters().applyFilter(tableHandle, constraint);
     }
 }

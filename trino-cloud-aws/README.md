@@ -618,22 +618,55 @@ one [AwsTable](src/main/java/pl/net/was/cloud/aws/AwsTable.java) definition per 
 
 To add a new table that can be read from:
 
-1. If the table lists a single AWS SDK model, add a `simpleTable(schema, name, Model.builder().sdkFields(), () -> client.describeX().items())` entry.
+1. If the table lists a single AWS SDK model from a regional EC2 API operation, add a `simpleRegionalTable` entry with:
+   - the name of the table,
+   - the fields of the SDK model, like `Vpc.builder().sdkFields()`,
+   - a supplier of the builder of the SDK request, like `DescribeVpcsRequest::builder`,
+   - a function that sends the request using a client, and returns the SDK objects,
+     like `(client, request) -> client.describeVpcsPaginator(request).vpcs()`.
    Columns are derived from the SDK model fields, see [Type mapping](#type-mapping).
    If a name is split in the wrong place, or two fields would end up with the same column name, which fails creating the catalog,
    add the mixed-case word to `WORDS` in [SdkColumns](src/main/java/pl/net/was/cloud/aws/SdkColumns.java).
-2. Otherwise, use `AwsTable.builder(name, SdkTableColumns.builder(sdkFields)...build())` and set a `rowSource`,
-   which returns the SDK model objects for a table handle.
+2. Otherwise, use `AwsTable.builder(name, SdkTableColumns.builder(sdkFields)...build())` and set a `RequestRowSource`
+   as the `rowSource`, with a client, the request builder supplier and the function that sends the request.
    To add columns that aren't in the SDK model, use `prepend` or `insertAfter` on the `SdkTableColumns` builder,
    with a function that computes the value from the SDK object. See the `ec2.instances` definition, which adds `row_id` and `state_name`.
-3. Add the table to the [Tables](#tables) section of this README.
+3. Declare the pushed-down filters, see [Filters](#filters).
+4. Add the table to the [Tables](#tables) section of this README.
    `TestAwsDocumentation` fails if a table is missing from it.
-4. Profit!
+5. Profit!
 
-> Note: if the corresponding API method requires predicates that don't map to any field in the response,
-> add an extra column, set a `filterApplier` that supports it, and pass the value from the predicate as the context of the rows,
-> so the column can be computed with `SdkRow::context`.
-> See the S3 `bucketTable` definitions.
+## Filters
+
+The tables don't read the pushed-down predicates themselves. Every table declares, for every column that can be
+filtered, which part of the AWS request receives the values of equality and `IN` predicates on that column, using
+the `ColumnFilter` factories:
+
+- `requestMember(column, memberName)` sets a member of the request, named like in the AWS API reference, like
+  `requestMember("image_id", "ImageIds")`. The member is found in the SDK model of the request, so a list member
+  accepts a batch of up to 100 values, and a scalar member, like `Bucket`, a single value. Scans with more values are
+  divided into splits. AWS returns only the matching rows, so Trino doesn't apply the predicate again.
+- `ec2Filter(column, filterName)` adds an EC2 filter to the `Filters` member of the request, like
+  `ec2Filter("instance_id", "instance-id")`. EC2 filter values treat `*` and `?` as wildcards, so Trino still
+  applies the predicate.
+- `partition(column)` chooses the client that sends the request, like the client of a region. Regional EC2 tables
+  get the `region` partition column from `regionalTable`, with the configured regions as its known values.
+
+Options of a column filter:
+
+- `unenforced()` keeps the predicate in the filter applied by Trino, when AWS can return rows that don't match
+  it, like for owner aliases of `ec2.images`.
+- `knownValues(supplier)` lists all the values that can be read, like the configured regions. Scans are divided into
+  a split for every batch of the values, also without a filter, and other filter values match no rows.
+- `defaultValues(supplier, unlessFilteredColumns...)` lists the values read by scans without a filter on the
+  column, or on any of the other given columns, like the owned buckets for the `bucket_name` column, or the `self`
+  owner of `ec2.images` when the image IDs are not filtered.
+- `skipMissingValues(errorCodes)` requests every value separately when AWS fails the whole request because one of the
+  values doesn't exist, like `DescribeImages` with an image ID that doesn't exist.
+
+The values of filters that accept a single value per request, like the region or the bucket name, are available to
+derived columns as `SdkRow.requestValue(column)`, like the `bucket_name` column of the S3 object tables, which is
+not a part of the listed SDK objects.
 
 ## INSERT support
 
@@ -649,7 +682,7 @@ For columns that map to request fields with a different name or type, like `tags
 
 1. Prepend a hidden `row_id` column with a unique identifier of the resource.
    See the `ec2.instances` definition.
-1. Set the `primaryKey` column, which `UPDATE` and `DELETE` statements must filter on, so the filter applier must support it.
+1. Set the `primaryKey` column, which `UPDATE` and `DELETE` statements must filter on, so it must have a column filter.
 1. Set an `updater` and/or a `deleter` on the table definition. They receive the row ID, and the updater also receives the values of the updated columns.
    The updater lists the columns it supports, and updating other columns is rejected when planning the query.
 
