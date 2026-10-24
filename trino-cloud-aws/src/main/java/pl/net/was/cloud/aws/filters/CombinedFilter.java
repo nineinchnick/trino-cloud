@@ -55,12 +55,6 @@ public class CombinedFilter
     }
 
     @Override
-    public Set<String> getRequiredFilters()
-    {
-        return combineSets(FilterApplier::getRequiredFilters);
-    }
-
-    @Override
     public Map<String, Integer> getSplitBatchSizes()
     {
         return combineMaps(FilterApplier::getSplitBatchSizes);

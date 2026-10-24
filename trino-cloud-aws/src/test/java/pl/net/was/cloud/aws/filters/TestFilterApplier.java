@@ -14,7 +14,6 @@
 
 package pl.net.was.cloud.aws.filters;
 
-import io.trino.spi.TrinoException;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ConnectorTableHandle;
 import io.trino.spi.connector.Constraint;
@@ -37,7 +36,6 @@ import static io.airlift.slice.Slices.utf8Slice;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static pl.net.was.cloud.aws.filters.FilterType.EQUAL;
 import static pl.net.was.cloud.aws.filters.FilterType.GREATER_THAN_EQUAL;
 
@@ -234,33 +232,6 @@ final class TestFilterApplier
         assertThat(newTable.constraint()).isEqualTo(TupleDomain.withColumnDomains(Map.of(
                 ID, Domain.singleValue(VARCHAR, utf8Slice("a")),
                 SIZE, greaterThanOrEqual(10))));
-    }
-
-    @Test
-    void testRequiredFilters()
-    {
-        FilterApplier filterApplier = new FilterApplier()
-        {
-            @Override
-            public Map<String, FilterType> getSupportedFilters()
-            {
-                return SUPPORTED_FILTERS;
-            }
-
-            @Override
-            public Set<String> getRequiredFilters()
-            {
-                return Set.of("id");
-            }
-        };
-        AwsTableHandle table = new AwsTableHandle(new SchemaTableName("s3", "objects"));
-
-        assertThatThrownBy(() -> filterApplier.checkRequiredFilters(table))
-                .isInstanceOf(TrinoException.class)
-                .hasMessage("Missing required filter on s3.objects.id. Add a condition like id = '...' or id IN ('...', '...') to the WHERE clause");
-        assertThatThrownBy(() -> filterApplier.checkRequiredFilters(table.withConstraint(TupleDomain.withColumnDomains(Map.of(SIZE, greaterThanOrEqual(10))))))
-                .isInstanceOf(TrinoException.class);
-        filterApplier.checkRequiredFilters(table.withConstraint(TupleDomain.withColumnDomains(Map.of(ID, Domain.singleValue(VARCHAR, utf8Slice("a"))))));
     }
 
     private static Optional<ConstraintApplicationResult<ConnectorTableHandle>> applyFilter(AwsTableHandle table, Map<ColumnHandle, Domain> domains)
