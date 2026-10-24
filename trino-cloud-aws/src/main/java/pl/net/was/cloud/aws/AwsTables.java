@@ -99,7 +99,6 @@ import static io.trino.spi.StandardErrorCode.TABLE_NOT_FOUND;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.util.Objects.requireNonNull;
 import static java.util.function.Function.identity;
-import static pl.net.was.cloud.aws.AwsErrorCode.AWS_MISSING_PREDICATE;
 import static pl.net.was.cloud.aws.AwsTable.ROW_ID;
 import static pl.net.was.cloud.aws.SdkColumns.columns;
 import static pl.net.was.cloud.aws.SdkIterables.emptyOnErrorCodes;
@@ -207,8 +206,8 @@ public class AwsTables
                         new SchemaTableName("s3", table),
                         columns(List.of(new ColumnMetadata("bucket_name", VARCHAR)), sdkFields))
                 .rowSource((awsTable, handle) -> {
+                    awsTable.requireFilterApplier().checkRequiredFilters(handle);
                     List<String> bucketNames = awsTable.requireFilterApplier().getFilterValues(awsTable.columnHandle("bucket_name"), handle.constraint());
-                    requirePredicate(bucketNames, awsTable.name() + ".bucket_name");
                     return Iterables.concat(Lists.transform(
                             bucketNames,
                             bucketName -> encodeRows(rows.apply(bucketName), List.of(_ -> bucketName))));
@@ -364,12 +363,5 @@ public class AwsTables
             return VARCHAR.getSlice(values, position).toStringUtf8();
         }
         throw new TrinoException(INVALID_ARGUMENTS, "Updates of ec2.instances.state column require a map with a Name key, like MAP(ARRAY['Name'], ARRAY['stopped'])");
-    }
-
-    private static void requirePredicate(List<String> values, String name)
-    {
-        if (values.isEmpty()) {
-            throw new TrinoException(AWS_MISSING_PREDICATE, "Missing required constraint for " + name);
-        }
     }
 }

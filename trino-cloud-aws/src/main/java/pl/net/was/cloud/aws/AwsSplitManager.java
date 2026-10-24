@@ -15,6 +15,7 @@
 package pl.net.was.cloud.aws;
 
 import com.google.common.collect.ImmutableList;
+import com.google.inject.Inject;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.ConnectorSplitManager;
@@ -26,9 +27,19 @@ import io.trino.spi.connector.FixedSplitSource;
 
 import java.util.Set;
 
+import static java.util.Objects.requireNonNull;
+
 public class AwsSplitManager
         implements ConnectorSplitManager
 {
+    private final AwsTables tables;
+
+    @Inject
+    public AwsSplitManager(AwsTables tables)
+    {
+        this.tables = requireNonNull(tables, "tables is null");
+    }
+
     @Override
     public ConnectorSplitSource getSplits(
             ConnectorTransactionHandle transaction,
@@ -37,6 +48,11 @@ public class AwsSplitManager
             Set<ColumnHandle> dynamicFilterColumns,
             Constraint constraint)
     {
-        return new FixedSplitSource(ImmutableList.of(new AwsConnectorSplit((AwsTableHandle) table)));
+        AwsTableHandle tableHandle = (AwsTableHandle) table;
+        // applyFilter isn't called for queries without a WHERE clause, so check the final table handle before any rows are read
+        tables.require(tableHandle.schemaTableName())
+                .filterApplier()
+                .ifPresent(filterApplier -> filterApplier.checkRequiredFilters(tableHandle));
+        return new FixedSplitSource(ImmutableList.of(new AwsConnectorSplit(tableHandle)));
     }
 }

@@ -17,6 +17,7 @@ package pl.net.was.cloud.aws.filters;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.Map;
+import java.util.Set;
 
 public class BucketFilter
         implements FilterApplier
@@ -26,5 +27,11 @@ public class BucketFilter
     {
         return ImmutableMap.of(
                 "bucket_name", FilterType.EQUAL);
+    }
+
+    @Override
+    public Set<String> getRequiredFilters()
+    {
+        return Set.of("bucket_name");
     }
 }

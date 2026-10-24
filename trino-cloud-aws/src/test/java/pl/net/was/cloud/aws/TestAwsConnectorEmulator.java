@@ -24,6 +24,7 @@ import java.util.List;
 
 import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
+import static pl.net.was.cloud.aws.AwsErrorCode.AWS_MISSING_PREDICATE;
 import static pl.net.was.cloud.aws.EmulatorTestData.IMAGE_ID;
 import static pl.net.was.cloud.aws.EmulatorTestData.IMAGE_OWNER_ID;
 import static pl.net.was.cloud.aws.EmulatorTestData.INSTANCE_TYPE;
@@ -436,10 +437,28 @@ final class TestAwsConnectorEmulator
     @Test
     void testObjectsRequireBucketName()
     {
-        assertQueryFails("SELECT * FROM aws.s3.objects", "Missing required constraint for s3.objects.bucket_name");
-        assertQueryFails("SELECT * FROM aws.s3.object_versions", "Missing required constraint for s3.object_versions.bucket_name");
-        assertQueryFails("SELECT * FROM aws.s3.deleted_objects", "Missing required constraint for s3.deleted_objects.bucket_name");
-        assertQueryFails("SELECT * FROM aws.s3.objects WHERE bucket_name IS NULL", "Missing required constraint for s3.objects.bucket_name");
-        assertQueryFails("SELECT * FROM aws.s3.objects WHERE bucket_name = '%s' OR bucket_name IS NULL".formatted(OBJECTS_BUCKET), "Missing required constraint for s3.objects.bucket_name");
+        assertMissingBucketName("SELECT * FROM aws.s3.objects", "s3.objects");
+        assertMissingBucketName("SELECT * FROM aws.s3.object_versions", "s3.object_versions");
+        assertMissingBucketName("SELECT * FROM aws.s3.deleted_objects", "s3.deleted_objects");
+        assertMissingBucketName("SELECT count(*) FROM aws.s3.objects WHERE size > 0", "s3.objects");
+        assertMissingBucketName("SELECT * FROM aws.s3.objects WHERE bucket_name IS NULL", "s3.objects");
+        assertMissingBucketName("SELECT * FROM aws.s3.objects WHERE bucket_name = '%s' OR bucket_name IS NULL".formatted(OBJECTS_BUCKET), "s3.objects");
+    }
+
+    @Test
+    void testObjectsMetadataWithoutBucketName()
+    {
+        assertThat(query("DESCRIBE aws.s3.objects")).succeeds();
+        assertThat(query("SHOW COLUMNS FROM aws.s3.objects")).succeeds();
+        assertThat(query("EXPLAIN SELECT * FROM aws.s3.objects")).succeeds();
+        assertQueryReturnsEmptyResult("SELECT * FROM aws.s3.objects LIMIT 0");
+        assertQueryReturnsEmptyResult("SELECT * FROM aws.s3.objects WHERE false");
+    }
+
+    private void assertMissingBucketName(String sql, String table)
+    {
+        assertThat(query(sql)).failure()
+                .hasErrorCode(AWS_MISSING_PREDICATE)
+                .hasMessage("Missing required filter on %s.bucket_name. Add a condition like bucket_name = '...' or bucket_name IN ('...', '...') to the WHERE clause".formatted(table));
     }
 }
