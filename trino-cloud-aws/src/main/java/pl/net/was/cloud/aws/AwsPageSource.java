@@ -30,7 +30,7 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Reads rows lazily, so AWS is only called when the next page of results is needed,
- * and encodes only the projected columns.
+ * and encodes only the projected columns. Stops reading after the pushed-down limit.
  */
 class AwsPageSource
         implements ConnectorPageSource
@@ -97,7 +97,7 @@ class AwsPageSource
             return null;
         }
         while (!pageBuilder.isFull() && pageBuilder.getPositionCount() < MAX_ROWS_PER_PAGE) {
-            if (!hasNextRow()) {
+            if (isLimitReached() || !hasNextRow()) {
                 finished = true;
                 break;
             }
@@ -133,6 +133,13 @@ class AwsPageSource
         }
         memoryContext.setBytes(bytes);
         reportedMemoryBytes = bytes;
+    }
+
+    // checked before getting the next row, so AWS isn't asked for the next page of results that wouldn't be read
+    private boolean isLimitReached()
+    {
+        OptionalLong limit = tableHandle.limit();
+        return limit.isPresent() && completedPositions + pageBuilder.getPositionCount() >= limit.orElseThrow();
     }
 
     // AWS is called when getting the rows of tables that are not paginated, and when the iterator needs the next page of results
