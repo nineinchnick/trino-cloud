@@ -33,10 +33,6 @@ jobs:
 
       - name: Prepare release
         run: ./mvnw -B release:prepare
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: eu-central-1
 
       # Log in only after the tests and build plugins run by release:prepare have finished,
       # and log out before release:perform runs them again, so they can't read ~/.docker/config.json
