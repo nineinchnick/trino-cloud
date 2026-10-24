@@ -21,7 +21,6 @@ import io.trino.spi.TrinoException;
 import io.trino.spi.block.Block;
 import io.trino.spi.block.SqlMap;
 import io.trino.spi.connector.ConnectorMergeSink;
-import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.type.Type;
 import software.amazon.awssdk.services.ec2.Ec2Client;
@@ -52,9 +51,9 @@ public class AwsMergeSink
 
     private final Ec2Client ec2;
 
-    public AwsMergeSink(ConnectorSession session, AwsOutputTableHandle table, AwsMetadata metadata, Ec2Client ec2, S3Client s3)
+    public AwsMergeSink(AwsOutputTableHandle table, AwsMetadata metadata, Ec2Client ec2, S3Client s3)
     {
-        super(session, table, ec2, s3);
+        super(table, ec2, s3);
 
         this.ec2 = requireNonNull(ec2, "ec2 is null");
         this.deleters = new ImmutableMap.Builder<String, BiConsumer<Block, Integer>>()

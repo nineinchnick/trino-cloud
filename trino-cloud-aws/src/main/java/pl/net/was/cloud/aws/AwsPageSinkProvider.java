@@ -49,18 +49,18 @@ public class AwsPageSinkProvider
     @Override
     public ConnectorPageSink createPageSink(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorOutputTableHandle tableHandle, Optional<ConnectorTableCredentials> tableCredentials, ConnectorPageSinkId pageSinkId)
     {
-        return new AwsPageSink(session, (AwsOutputTableHandle) tableHandle, ec2, s3);
+        return new AwsPageSink((AwsOutputTableHandle) tableHandle, ec2, s3);
     }
 
     @Override
     public ConnectorPageSink createPageSink(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorInsertTableHandle tableHandle, Optional<ConnectorTableCredentials> tableCredentials, ConnectorPageSinkId pageSinkId)
     {
-        return new AwsPageSink(session, (AwsOutputTableHandle) tableHandle, ec2, s3);
+        return new AwsPageSink((AwsOutputTableHandle) tableHandle, ec2, s3);
     }
 
     @Override
     public ConnectorMergeSink createMergeSink(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorMergeTableHandle tableHandle, Optional<ConnectorTableCredentials> tableCredentials, ConnectorPageSinkId pageSinkId)
     {
-        return new AwsMergeSink(session, (AwsOutputTableHandle) tableHandle, metadata, ec2, s3);
+        return new AwsMergeSink((AwsOutputTableHandle) tableHandle, metadata, ec2, s3);
     }
 }
