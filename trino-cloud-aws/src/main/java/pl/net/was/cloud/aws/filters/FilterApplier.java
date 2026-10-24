@@ -14,6 +14,7 @@
 
 package pl.net.was.cloud.aws.filters;
 
+import io.airlift.log.Logger;
 import io.airlift.slice.Slice;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.ColumnHandle;
@@ -35,7 +36,6 @@ import java.time.ZonedDateTime;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.logging.Logger;
 
 import static io.trino.spi.StandardErrorCode.INVALID_ROW_FILTER;
 import static io.trino.spi.type.DateTimeEncoding.unpackMillisUtc;
@@ -44,13 +44,12 @@ import static io.trino.spi.type.Timestamps.MILLISECONDS_PER_SECOND;
 import static io.trino.spi.type.Timestamps.NANOSECONDS_PER_MILLISECOND;
 import static java.lang.Math.floorDiv;
 import static java.lang.Math.floorMod;
-import static java.lang.String.format;
 import static java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 import static pl.net.was.cloud.aws.filters.FilterType.EQUAL;
 
 public interface FilterApplier
 {
-    Logger log = Logger.getLogger(FilterApplier.class.getName());
+    Logger log = Logger.get(FilterApplier.class);
 
     Map<String, FilterType> getSupportedFilters();
 
@@ -115,7 +114,7 @@ public interface FilterApplier
         //noinspection OptionalGetWithoutIsPresent
         Domain domain = constraint.getDomains().get().get(column);
         if (domain == null) {
-            log.info(format("Missing filter on %s", column.getName()));
+            log.debug("Missing filter on %s", column.getName());
             return null;
         }
         TupleDomain<ColumnHandle> newConstraint = constraint.filter(
@@ -128,7 +127,7 @@ public interface FilterApplier
                 // normalize the constraint into a low-bound range
                 Range span = domain.getValues().getRanges().getSpan();
                 if (span.isLowUnbounded()) {
-                    log.warning(format("Not pushing down filter on %s because it does not have a lower bound: %s", column.getName(), domain));
+                    log.debug("Not pushing down filter on %s because it does not have a lower bound: %s", column.getName(), domain);
                     return null;
                 }
                 newConstraint = TupleDomain.withColumnDomains(Map.of(
@@ -141,7 +140,7 @@ public interface FilterApplier
             }
             case EQUAL -> {
                 if (!domain.getValues().isDiscreteSet() && !domain.getValues().getRanges().getOrderedRanges().stream().allMatch(Range::isSingleValue)) {
-                    log.warning(format("Not pushing down filter on %s because it's not a discrete set: %s", column.getName(), domain));
+                    log.debug("Not pushing down filter on %s because it's not a discrete set: %s", column.getName(), domain);
                     return null;
                 }
                 return newConstraint;
