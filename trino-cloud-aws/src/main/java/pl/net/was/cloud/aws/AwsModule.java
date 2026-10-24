@@ -93,6 +93,7 @@ public class AwsModule
         public S3Client get()
         {
             return clientConfigurer.configure(S3Client.builder())
+                    .crossRegionAccessEnabled(true)
                     .build();
         }
     }
