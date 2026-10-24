@@ -27,6 +27,7 @@ import pl.net.was.cloud.aws.AwsTable.Inserter;
 import software.amazon.awssdk.awscore.AwsRequest;
 import software.amazon.awssdk.core.SdkField;
 import software.amazon.awssdk.core.SdkPojo;
+import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.services.ec2.model.Tag;
 import software.amazon.awssdk.services.ec2.model.TagSpecification;
 
@@ -84,7 +85,12 @@ public class AwsPageSink
     void insert(Page page, int position)
     {
         AwsRequest.Builder request = setFields(page, position, inserter.requestBuilder().get());
-        inserter.executor().accept(request.build());
+        try {
+            inserter.executor().accept(request.build());
+        }
+        catch (SdkException e) {
+            throw AwsErrors.translate(e);
+        }
     }
 
     private AwsRequest.Builder setFields(Page page, int position, AwsRequest.Builder request)

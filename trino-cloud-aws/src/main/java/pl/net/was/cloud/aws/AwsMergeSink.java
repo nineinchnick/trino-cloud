@@ -19,6 +19,7 @@ import io.trino.spi.Page;
 import io.trino.spi.TrinoException;
 import io.trino.spi.block.Block;
 import io.trino.spi.connector.ConnectorMergeSink;
+import software.amazon.awssdk.core.exception.SdkException;
 
 import java.util.Collection;
 import java.util.Locale;
@@ -54,14 +55,19 @@ public class AwsMergeSink
         for (int position = 0; position < page.getPositionCount(); position++) {
             byte op = TINYINT.getByte(ops, position);
             int currentPosition = position;
-            switch (op) {
-                case INSERT_OPERATION_NUMBER -> insertSink.orElseThrow(notSupported("Inserts")).insert(page, position);
-                case UPDATE_OPERATION_NUMBER -> table.updater().orElseThrow(notSupported("Updates"))
-                        .update(getRowId(page, position), column -> getColumnValue(page, currentPosition, column));
-                // TODO support batch operations, passing multiple IDs to the deleter
-                case DELETE_OPERATION_NUMBER -> table.deleter().orElseThrow(notSupported("Deletes"))
-                        .delete(getDeletedRowId(rowIds, position));
-                default -> throw new TrinoException(NOT_SUPPORTED, "Unsupported merge operation: " + op);
+            try {
+                switch (op) {
+                    case INSERT_OPERATION_NUMBER -> insertSink.orElseThrow(notSupported("Inserts")).insert(page, position);
+                    case UPDATE_OPERATION_NUMBER -> table.updater().orElseThrow(notSupported("Updates"))
+                            .update(getRowId(page, position), column -> getColumnValue(page, currentPosition, column));
+                    // TODO support batch operations, passing multiple IDs to the deleter
+                    case DELETE_OPERATION_NUMBER -> table.deleter().orElseThrow(notSupported("Deletes"))
+                            .delete(getDeletedRowId(rowIds, position));
+                    default -> throw new TrinoException(NOT_SUPPORTED, "Unsupported merge operation: " + op);
+                }
+            }
+            catch (SdkException e) {
+                throw AwsErrors.translate(e);
             }
         }
     }
