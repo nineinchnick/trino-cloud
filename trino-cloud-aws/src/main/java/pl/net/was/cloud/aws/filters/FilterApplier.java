@@ -16,7 +16,6 @@ package pl.net.was.cloud.aws.filters;
 
 import io.airlift.log.Logger;
 import io.airlift.slice.Slice;
-import io.trino.spi.TrinoException;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ConnectorTableHandle;
 import io.trino.spi.connector.Constraint;
@@ -36,7 +35,6 @@ import java.time.ZonedDateTime;
 import java.util.Map;
 import java.util.Optional;
 
-import static io.trino.spi.StandardErrorCode.INVALID_ROW_FILTER;
 import static io.trino.spi.type.DateTimeEncoding.unpackMillisUtc;
 import static io.trino.spi.type.DateTimeEncoding.unpackZoneKey;
 import static io.trino.spi.type.Timestamps.MILLISECONDS_PER_SECOND;
@@ -179,7 +177,7 @@ public interface FilterApplier
             }
             case StandardTypes.VARCHAR -> ((Slice) domain.getSingleValue()).toStringUtf8();
             case StandardTypes.BIGINT, StandardTypes.INTEGER -> domain.getSingleValue();
-            default -> throw new TrinoException(INVALID_ROW_FILTER, "Unexpected constraint for " + column.name() + "(" + column.type().getBaseName() + ")");
+            default -> throw new IllegalStateException("Unexpected constraint for " + column.name() + "(" + column.type().getBaseName() + ")");
         };
     }
 
