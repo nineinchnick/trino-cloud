@@ -13,6 +13,7 @@
  */
 package pl.net.was.cloud.aws;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.inject.Inject;
 import io.airlift.slice.Slices;
 import io.trino.spi.TrinoException;
@@ -26,6 +27,7 @@ import pl.net.was.cloud.aws.filters.ImageFilter;
 import pl.net.was.cloud.aws.filters.InstanceFilter;
 import software.amazon.awssdk.core.SdkField;
 import software.amazon.awssdk.core.SdkPojo;
+import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.AttributeValue;
 import software.amazon.awssdk.services.ec2.model.AvailabilityZone;
@@ -48,6 +50,7 @@ import software.amazon.awssdk.services.ec2.model.PlacementGroup;
 import software.amazon.awssdk.services.ec2.model.PrefixList;
 import software.amazon.awssdk.services.ec2.model.PublicIpv4Pool;
 import software.amazon.awssdk.services.ec2.model.Region;
+import software.amazon.awssdk.services.ec2.model.Reservation;
 import software.amazon.awssdk.services.ec2.model.RouteTable;
 import software.amazon.awssdk.services.ec2.model.RunInstancesRequest;
 import software.amazon.awssdk.services.ec2.model.SecurityGroup;
@@ -77,6 +80,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
@@ -96,6 +100,9 @@ import static pl.net.was.cloud.aws.SdkRowEncoder.encodeRows;
 
 public class AwsTables
 {
+    private static final Set<String> MISSING_IMAGE_CODES = ImmutableSet.of("InvalidAMIID.NotFound", "InvalidAMIID.Malformed");
+    private static final Set<String> MISSING_INSTANCE_CODES = ImmutableSet.of("InvalidInstanceID.NotFound", "InvalidInstanceID.Malformed");
+
     private final Map<SchemaTableName, AwsTable> tables;
 
     @Inject
@@ -216,8 +223,18 @@ public class AwsTables
         if (imageId == null && name == null && owner == null && handle.limit().isEmpty()) {
             throw new TrinoException(AWS_MISSING_PREDICATE, "Missing a limit or constraint for image_id, name, or owner_id");
         }
+        List<Image> images;
+        try {
+            images = ec2.describeImages(request.build()).images();
+        }
+        catch (SdkException e) {
+            if (AwsErrors.hasErrorCode(e, MISSING_IMAGE_CODES)) {
+                return List.of();
+            }
+            throw e;
+        }
         return encodeRows(
-                ec2.describeImages(request.build()).images(),
+                images,
                 List.of(
                         // populate row_id - to support DELETE
                         o -> Slices.utf8Slice(((Image) o).imageId()),
@@ -232,8 +249,17 @@ public class AwsTables
         if (instanceId != null) {
             request.instanceIds(instanceId);
         }
-        return ec2.describeInstances(request.build())
-                .reservations()
+        List<Reservation> reservations;
+        try {
+            reservations = ec2.describeInstances(request.build()).reservations();
+        }
+        catch (SdkException e) {
+            if (AwsErrors.hasErrorCode(e, MISSING_INSTANCE_CODES)) {
+                return List.of();
+            }
+            throw e;
+        }
+        return reservations
                 .stream()
                 .flatMap(r -> r.instances()
                         .stream()
