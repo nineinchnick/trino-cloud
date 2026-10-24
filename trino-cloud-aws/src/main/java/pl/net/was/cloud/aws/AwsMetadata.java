@@ -106,7 +106,7 @@ public class AwsMetadata
     // all types must be handled in AwsRecordSetProvider.encode()
     // missing: Void, BigDecimal, SdkBytes, Document
     // SdkPojo, List<?> and Map<String, ?> handled separately
-    private static final Map<MarshallingType<?>, Type> typeMap = new ImmutableMap.Builder<MarshallingType<?>, Type>()
+    private static final Map<MarshallingType<?>, Type> typeMap = ImmutableMap.<MarshallingType<?>, Type>builder()
             .put(MarshallingType.SHORT, SMALLINT)
             .put(MarshallingType.INTEGER, INTEGER)
             .put(MarshallingType.LONG, BIGINT)
@@ -116,7 +116,7 @@ public class AwsMetadata
             .put(MarshallingType.STRING, VARCHAR)
             .put(MarshallingType.INSTANT, TIMESTAMP_SECONDS)
             .put(MarshallingType.LIST, new ArrayType(VARCHAR))
-            .build();
+            .buildOrThrow();
 
     public static final String ROW_ID = "row_id";
 
@@ -124,18 +124,18 @@ public class AwsMetadata
     public final Map<String, Map<String, ColumnHandle>> columnHandles;
     public final Map<SchemaTableName, AwsColumnHandle> primaryKeys;
 
-    public final Map<String, ? extends FilterApplier> filterAppliers = new ImmutableMap.Builder<String, FilterApplier>()
+    public final Map<String, ? extends FilterApplier> filterAppliers = ImmutableMap.<String, FilterApplier>builder()
             .put("ec2.images", new ImageFilter())
             .put("ec2.instances", new InstanceFilter())
             .put("s3.objects", new BucketFilter())
             .put("s3.object_versions", new BucketFilter())
             .put("s3.deleted_objects", new BucketFilter())
-            .build();
+            .buildOrThrow();
 
     public AwsMetadata()
     {
         // must match AwsRecordSetProvider.rowGetters
-        columns = new ImmutableMap.Builder<SchemaTableName, List<ColumnMetadata>>()
+        columns = ImmutableMap.<SchemaTableName, List<ColumnMetadata>>builder()
                 .put(new SchemaTableName("ec2", "availability_zones"), fieldsToColumns(AvailabilityZone.builder().sdkFields()))
                 .put(new SchemaTableName("ec2", "images"), fieldsToColumns(
                         List.of(
@@ -179,11 +179,11 @@ public class AwsMetadata
                         List.of(
                                 new ColumnMetadata("bucket_name", VARCHAR)),
                         DeleteMarkerEntry.builder().sdkFields()))
-                .build();
-        primaryKeys = new ImmutableMap.Builder<SchemaTableName, AwsColumnHandle>()
+                .buildOrThrow();
+        primaryKeys = ImmutableMap.<SchemaTableName, AwsColumnHandle>builder()
                 .put(new SchemaTableName("ec2", "images"), new AwsColumnHandle("image_id", VARCHAR))
                 .put(new SchemaTableName("ec2", "instances"), new AwsColumnHandle("instance_id", VARCHAR))
-                .build();
+                .buildOrThrow();
 
         columnHandles = columns
                 .entrySet()

@@ -59,11 +59,11 @@ import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
-import static com.google.common.base.MoreObjects.firstNonNull;
 import static io.trino.spi.StandardErrorCode.INVALID_ROW_FILTER;
 import static io.trino.spi.type.Timestamps.MICROSECONDS_PER_SECOND;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.util.Objects.requireNonNull;
+import static java.util.Objects.requireNonNullElse;
 
 public class AwsRecordSetProvider
         implements ConnectorRecordSetProvider
@@ -82,7 +82,7 @@ public class AwsRecordSetProvider
         this.ec2 = requireNonNull(ec2, "ec2 is null");
         requireNonNull(s3, "s3 is null");
         // must match AwsMetadata.columns
-        this.rowGetters = new ImmutableMap.Builder<String, Function<AwsTableHandle, Iterable<List<?>>>>()
+        this.rowGetters = ImmutableMap.<String, Function<AwsTableHandle, Iterable<List<?>>>>builder()
                 .put("ec2.availability_zones", _ -> encodeRows(ec2.describeAvailabilityZones().availabilityZones()))
                 .put("ec2.images", this::getImages)
                 .put("ec2.instance_types", _ -> encodeRows(ec2.describeInstanceTypes(DescribeInstanceTypesRequest.builder().build()).instanceTypes()))
@@ -131,7 +131,7 @@ public class AwsRecordSetProvider
                             s3.listObjectVersions(ListObjectVersionsRequest.builder().bucket(bucketName).build()).deleteMarkers(),
                             List.of(_ -> bucketName));
                 })
-                .build();
+                .buildOrThrow();
     }
 
     private void requirePredicate(Object value, String name)
@@ -291,7 +291,7 @@ public class AwsRecordSetProvider
             return encodeMap((Map<?, ?>) o);
         }
         if (sdkType == MarshallingType.LIST) {
-            List<?> list = firstNonNull((List<?>) o, List.of());
+            List<?> list = requireNonNullElse((List<?>) o, List.of());
             if (f.containsTrait(ListTrait.class) &&
                     f.getTrait(ListTrait.class).memberFieldInfo().marshallingType() == MarshallingType.SDK_POJO) {
                 MapBlockBuilder mapBlockBuilder = mapType.createBlockBuilder(null, list.size());
