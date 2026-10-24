@@ -118,6 +118,7 @@ public class AwsTables
                                         columns(List.of(rowIdColumn(), new ColumnMetadata("instance_id", VARCHAR)), Image.builder().sdkFields()))
                                 .rowSource((table, handle) -> images(ec2, table, handle))
                                 .filterApplier(new ImageFilter())
+                                .primaryKey("image_id")
                                 .inserter(new Inserter(CreateImageRequest::builder, request -> ec2.createImage((CreateImageRequest) request)))
                                 .deleter(rowId -> ec2.deregisterImage(DeregisterImageRequest.builder().imageId(rowId).build()))
                                 .build(),
@@ -127,6 +128,7 @@ public class AwsTables
                                         columns(List.of(rowIdColumn()), Instance.builder().sdkFields()))
                                 .rowSource((table, handle) -> instances(ec2, table, handle))
                                 .filterApplier(new InstanceFilter())
+                                .primaryKey("instance_id")
                                 .inserter(new Inserter(() -> RunInstancesRequest.builder().minCount(1).maxCount(1), request -> ec2.runInstances((RunInstancesRequest) request)))
                                 .updater((rowId, columnValues) -> updateInstance(ec2, rowId, columnValues))
                                 .deleter(rowId -> ec2.terminateInstances(TerminateInstancesRequest.builder().instanceIds(rowId).build()))

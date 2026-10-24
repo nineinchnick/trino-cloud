@@ -52,7 +52,13 @@ final class EmulatorAwsQueryRunner
         return createQueryRunner(emulator, ImmutableMap.of());
     }
 
-    private static QueryRunner createQueryRunner(Floci emulator, Map<String, String> coordinatorProperties)
+    static QueryRunner createQueryRunner(Floci emulator, Map<String, String> catalogProperties)
+            throws Exception
+    {
+        return createQueryRunner(emulator, ImmutableMap.of(), catalogProperties);
+    }
+
+    private static QueryRunner createQueryRunner(Floci emulator, Map<String, String> coordinatorProperties, Map<String, String> catalogProperties)
             throws Exception
     {
         Session defaultSession = testSessionBuilder()
@@ -66,11 +72,13 @@ final class EmulatorAwsQueryRunner
                 .build();
         try {
             queryRunner.installPlugin(new AwsPlugin());
-            queryRunner.createCatalog("aws", "aws", ImmutableMap.of(
-                    "aws.endpoint", emulator.endpoint().toString(),
-                    "aws.region", FLOCI_REGION,
-                    "aws.access-key", FLOCI_ACCESS_KEY,
-                    "aws.secret-key", FLOCI_SECRET_KEY));
+            queryRunner.createCatalog("aws", "aws", ImmutableMap.<String, String>builder()
+                    .put("aws.endpoint", emulator.endpoint().toString())
+                    .put("aws.region", FLOCI_REGION)
+                    .put("aws.access-key", FLOCI_ACCESS_KEY)
+                    .put("aws.secret-key", FLOCI_SECRET_KEY)
+                    .putAll(catalogProperties)
+                    .buildOrThrow());
             return queryRunner;
         }
         catch (Throwable e) {
@@ -89,8 +97,10 @@ final class EmulatorAwsQueryRunner
         Floci emulator = createEmulator();
         emulator.start();
         EmulatorTestData.create(emulator);
-        QueryRunner queryRunner = createQueryRunner(emulator, ImmutableMap.of(
-                "http-server.http.port", requireNonNullElse(System.getenv("TRINO_PORT"), "8082")));
+        QueryRunner queryRunner = createQueryRunner(
+                emulator,
+                ImmutableMap.of("http-server.http.port", requireNonNullElse(System.getenv("TRINO_PORT"), "8082")),
+                ImmutableMap.of("aws.read-only", "false"));
 
         Logger log = Logger.get(EmulatorAwsQueryRunner.class);
         log.info("======== SERVER STARTED ========");

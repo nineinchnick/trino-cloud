@@ -43,6 +43,7 @@ public final class AwsTable
     private final Map<String, ColumnHandle> columnHandles;
     private final RowSource rowSource;
     private final Optional<FilterApplier> filterApplier;
+    private final Optional<String> primaryKey;
     private final Optional<Inserter> inserter;
     private final Optional<Updater> updater;
     private final Optional<Deleter> deleter;
@@ -55,10 +56,13 @@ public final class AwsTable
                 .collect(toImmutableMap(ColumnMetadata::getName, column -> new AwsColumnHandle(column.getName(), column.getType())));
         this.rowSource = requireNonNull(builder.rowSource, "rowSource is null");
         this.filterApplier = Optional.ofNullable(builder.filterApplier);
+        this.primaryKey = Optional.ofNullable(builder.primaryKey);
         this.inserter = Optional.ofNullable(builder.inserter);
         this.updater = Optional.ofNullable(builder.updater);
         this.deleter = Optional.ofNullable(builder.deleter);
-        checkArgument(updater.isEmpty() && deleter.isEmpty() || columnHandles.containsKey(ROW_ID), "%s supports updates or deletes, so it must have a %s column", name, ROW_ID);
+        checkArgument((updater.isEmpty() && deleter.isEmpty()) || columnHandles.containsKey(ROW_ID), "%s supports updates or deletes, so it must have a %s column", name, ROW_ID);
+        checkArgument((updater.isEmpty() && deleter.isEmpty()) || primaryKey.isPresent(), "%s supports updates or deletes, so it must have a primary key", name);
+        primaryKey.ifPresent(column -> checkArgument(columnHandles.containsKey(column), "Primary key column %s does not exist in %s", column, name));
     }
 
     public static Builder builder(SchemaTableName name, List<ColumnMetadata> columns)
@@ -91,6 +95,11 @@ public final class AwsTable
     public Optional<AwsColumnHandle> rowIdColumn()
     {
         return Optional.ofNullable((AwsColumnHandle) columnHandles.get(ROW_ID));
+    }
+
+    public Optional<AwsColumnHandle> primaryKeyColumn()
+    {
+        return primaryKey.map(this::columnHandle);
     }
 
     public Iterable<List<?>> rows(AwsTableHandle table)
@@ -167,6 +176,7 @@ public final class AwsTable
         private final List<ColumnMetadata> columns;
         private RowSource rowSource;
         private FilterApplier filterApplier;
+        private String primaryKey;
         private Inserter inserter;
         private Updater updater;
         private Deleter deleter;
@@ -186,6 +196,12 @@ public final class AwsTable
         public Builder filterApplier(FilterApplier filterApplier)
         {
             this.filterApplier = filterApplier;
+            return this;
+        }
+
+        public Builder primaryKey(String primaryKey)
+        {
+            this.primaryKey = primaryKey;
             return this;
         }
 

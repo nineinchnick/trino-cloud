@@ -82,6 +82,8 @@ INSERT INTO ec2.instances (image_id, instance_type, key_name) VALUES ('ami-05f74
 ```
 
 The `ec2.instances` table also has limited `UPDATE` and `DELETE` support.
+`UPDATE` and `DELETE` require a filter on the primary key column, like `WHERE instance_id = '...'`,
+so a single statement can't change or remove every resource at once.
 
 > Warning: `UPDATE` and `DELETE` are currently broken and fail for every row,
 > see [#283](https://github.com/nineinchnick/trino-cloud/issues/283).
