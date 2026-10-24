@@ -177,6 +177,14 @@ final class TestAwsConnectorEmulator
     }
 
     @Test
+    void testNullNestedObjectColumns()
+    {
+        assertQuery(
+                "SELECT iam_instance_profile IS NULL, placement['HostId'] IS NULL, placement['AvailabilityZone'] FROM aws.ec2.instances WHERE instance_id = '%s'".formatted(testData.instanceIds().getFirst()),
+                "VALUES (true, true, 'us-east-1a')");
+    }
+
+    @Test
     void testImagesRequireFilterOrLimit()
     {
         assertQueryFails("SELECT * FROM aws.ec2.images", "Missing a limit or constraint for image_id, name, or owner_id");
