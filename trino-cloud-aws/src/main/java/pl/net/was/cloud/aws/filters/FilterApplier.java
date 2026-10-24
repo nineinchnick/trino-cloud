@@ -52,6 +52,7 @@ import static java.lang.Math.floorMod;
 import static java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 import static pl.net.was.cloud.aws.AwsErrorCode.AWS_MISSING_PREDICATE;
 import static pl.net.was.cloud.aws.filters.FilterType.EQUAL;
+import static pl.net.was.cloud.aws.filters.MapEntryPredicates.mapEntryDomains;
 
 public interface FilterApplier
 {
@@ -96,6 +97,15 @@ public interface FilterApplier
         return Map.of();
     }
 
+    /**
+     * Names of map columns with varchar values, with equality and IN predicates on the values of their entries pushed down, like tags['Name'] = 'value'.
+     * They're never enforced, because the engine only removes predicates on whole columns from the remaining filter.
+     */
+    default Set<String> getMapEntryFilters()
+    {
+        return Set.of();
+    }
+
     default Optional<ConstraintApplicationResult<ConnectorTableHandle>> applyFilter(
             AwsTableHandle table,
             Map<String, ColumnHandle> columns,
@@ -103,8 +113,9 @@ public interface FilterApplier
             Constraint constraint)
     {
         TupleDomain<ColumnHandle> summary = constraint.getSummary();
+        Map<AwsColumnHandle, Domain> mapEntryDomains = mapEntryDomains(constraint, getMapEntryFilters());
         // the only reason not to use isNone is so the linter doesn't complain about not checking an Optional
-        if (summary.isAll() || summary.getDomains().isEmpty()) {
+        if (summary.getDomains().isEmpty() || (summary.isAll() && mapEntryDomains.isEmpty())) {
             return Optional.empty();
         }
 
@@ -132,6 +143,14 @@ public interface FilterApplier
             // remove from remaining constraints
             summary = summary.filter(
                     (columnHandle, _) -> !columnHandle.equals(column));
+        }
+        for (Map.Entry<AwsColumnHandle, Domain> entry : mapEntryDomains.entrySet()) {
+            TupleDomain<ColumnHandle> newConstraint = TupleDomain.withColumnDomains(Map.of(entry.getKey(), entry.getValue()));
+            if (!validateConstraint(entry.getKey(), EQUAL, currentConstraint, newConstraint)) {
+                continue;
+            }
+            currentConstraint = currentConstraint.intersect(newConstraint);
+            found = true;
         }
         if (!found) {
             return Optional.empty();

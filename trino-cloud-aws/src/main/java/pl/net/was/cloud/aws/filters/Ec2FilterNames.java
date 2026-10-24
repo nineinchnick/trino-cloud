@@ -29,6 +29,11 @@ import static java.util.Objects.requireNonNull;
  */
 public record Ec2FilterNames(Set<String> filterNames, Map<String, String> columnFilterNames)
 {
+    /**
+     * Filters on the value of a tag with a given key, pushed down for map entries of the tags column, like tags['Name'] = 'value'.
+     */
+    public static final String TAG_FILTER = "tag:<key>";
+
     public Ec2FilterNames
     {
         filterNames = ImmutableSet.copyOf(requireNonNull(filterNames, "filterNames is null"));

@@ -20,10 +20,18 @@ import io.trino.spi.connector.ConnectorTableHandle;
 import io.trino.spi.connector.Constraint;
 import io.trino.spi.connector.ConstraintApplicationResult;
 import io.trino.spi.connector.SchemaTableName;
+import io.trino.spi.expression.Call;
+import io.trino.spi.expression.ConnectorExpression;
+import io.trino.spi.expression.Constant;
+import io.trino.spi.expression.FunctionName;
+import io.trino.spi.expression.Variable;
 import io.trino.spi.predicate.Domain;
 import io.trino.spi.predicate.Range;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.predicate.ValueSet;
+import io.trino.spi.type.ArrayType;
+import io.trino.spi.type.MapType;
+import io.trino.spi.type.TypeOperators;
 import org.junit.jupiter.api.Test;
 import pl.net.was.cloud.aws.AwsColumnHandle;
 import pl.net.was.cloud.aws.AwsTableHandle;
@@ -34,7 +42,13 @@ import java.util.Optional;
 import java.util.Set;
 
 import static io.airlift.slice.Slices.utf8Slice;
+import static io.trino.spi.expression.StandardFunctions.AND_FUNCTION_NAME;
+import static io.trino.spi.expression.StandardFunctions.ARRAY_CONSTRUCTOR_FUNCTION_NAME;
+import static io.trino.spi.expression.StandardFunctions.EQUAL_OPERATOR_FUNCTION_NAME;
+import static io.trino.spi.expression.StandardFunctions.IN_PREDICATE_FUNCTION_NAME;
+import static io.trino.spi.expression.StandardFunctions.NOT_EQUAL_OPERATOR_FUNCTION_NAME;
 import static io.trino.spi.type.BigintType.BIGINT;
+import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -45,6 +59,7 @@ final class TestFilterApplier
 {
     private static final AwsColumnHandle ID = new AwsColumnHandle("id", VARCHAR);
     private static final AwsColumnHandle SIZE = new AwsColumnHandle("size", BIGINT);
+    private static final AwsColumnHandle TAGS = new AwsColumnHandle("tags", new MapType(VARCHAR, VARCHAR, new TypeOperators()));
     private static final Map<String, FilterType> SUPPORTED_FILTERS = Map.of("id", EQUAL, "size", GREATER_THAN_EQUAL);
     private static final Map<String, ColumnHandle> COLUMNS = Map.of("id", ID, "size", SIZE);
     private static final FilterApplier FILTER_APPLIER = () -> SUPPORTED_FILTERS;
@@ -261,6 +276,102 @@ final class TestFilterApplier
         assertThatThrownBy(() -> filterApplier.checkRequiredFilters(table.withConstraint(TupleDomain.withColumnDomains(Map.of(SIZE, greaterThanOrEqual(10))))))
                 .isInstanceOf(TrinoException.class);
         filterApplier.checkRequiredFilters(table.withConstraint(TupleDomain.withColumnDomains(Map.of(ID, Domain.singleValue(VARCHAR, utf8Slice("a"))))));
+    }
+
+    @Test
+    void testPushesDownMapEntryEquality()
+    {
+        AwsTableHandle table = new AwsTableHandle(new SchemaTableName("ec2", "instances"));
+        ConnectorExpression expression = equal(subscript("$operator$subscript", "Name"), varchar("a"));
+
+        Optional<ConstraintApplicationResult<ConnectorTableHandle>> result = applyMapEntryFilter(table, expression);
+
+        assertThat(result).isPresent();
+        AwsTableHandle newTable = (AwsTableHandle) result.orElseThrow().getHandle();
+        assertThat(newTable.constraint()).isEqualTo(TupleDomain.withColumnDomains(Map.of(
+                AwsColumnHandle.mapEntry(TAGS, "Name"), Domain.singleValue(VARCHAR, utf8Slice("a")))));
+        // the engine still applies the predicate, because EC2 filter values treat * and ? as wildcards
+        assertThat(result.orElseThrow().getRemainingExpression()).hasValue(expression);
+        // pushing down the same predicate again would make the planner loop
+        assertThat(applyMapEntryFilter(newTable, expression)).isEmpty();
+    }
+
+    @Test
+    void testPushesDownMapEntryInList()
+    {
+        AwsTableHandle table = new AwsTableHandle(new SchemaTableName("ec2", "instances"));
+        ConnectorExpression expression = new Call(BOOLEAN, IN_PREDICATE_FUNCTION_NAME, List.of(
+                subscript("element_at", "Name"),
+                new Call(new ArrayType(VARCHAR), ARRAY_CONSTRUCTOR_FUNCTION_NAME, List.of(varchar("a"), varchar("b")))));
+
+        AwsTableHandle newTable = (AwsTableHandle) applyMapEntryFilter(table, expression).orElseThrow().getHandle();
+
+        assertThat(newTable.constraint()).isEqualTo(TupleDomain.withColumnDomains(Map.of(
+                AwsColumnHandle.mapEntry(TAGS, "Name"), Domain.multipleValues(VARCHAR, List.of(utf8Slice("a"), utf8Slice("b"))))));
+    }
+
+    @Test
+    void testPushesDownMapEntriesInConjuncts()
+    {
+        AwsTableHandle table = new AwsTableHandle(new SchemaTableName("ec2", "instances"));
+        ConnectorExpression expression = new Call(BOOLEAN, AND_FUNCTION_NAME, List.of(
+                equal(subscript("$operator$subscript", "Name"), varchar("a")),
+                equal(subscript("$operator$subscript", "Owner"), varchar("b")),
+                equal(subscript("$operator$subscript", "Ignored"), new Variable("id", VARCHAR))));
+
+        AwsTableHandle newTable = (AwsTableHandle) applyMapEntryFilter(table, expression).orElseThrow().getHandle();
+
+        assertThat(newTable.constraint()).isEqualTo(TupleDomain.withColumnDomains(Map.of(
+                AwsColumnHandle.mapEntry(TAGS, "Name"), Domain.singleValue(VARCHAR, utf8Slice("a")),
+                AwsColumnHandle.mapEntry(TAGS, "Owner"), Domain.singleValue(VARCHAR, utf8Slice("b")))));
+    }
+
+    @Test
+    void testIgnoresOtherMapEntryPredicates()
+    {
+        AwsTableHandle table = new AwsTableHandle(new SchemaTableName("ec2", "instances"));
+
+        assertThat(applyMapEntryFilter(table, new Call(BOOLEAN, NOT_EQUAL_OPERATOR_FUNCTION_NAME, List.of(subscript("$operator$subscript", "Name"), varchar("a"))))).isEmpty();
+        assertThat(applyMapEntryFilter(table, equal(subscript("$operator$subscript", "Name"), new Variable("id", VARCHAR)))).isEmpty();
+        assertThat(applyMapEntryFilter(table, equal(new Call(VARCHAR, new FunctionName("lower"), List.of(new Variable("id", VARCHAR))), varchar("a")))).isEmpty();
+        assertThat(FILTER_APPLIER.applyFilter(table, COLUMNS, SUPPORTED_FILTERS, new Constraint(
+                TupleDomain.all(),
+                equal(subscript("$operator$subscript", "Name"), varchar("a")),
+                Map.of("id", ID, "tags", TAGS)))).isEmpty();
+    }
+
+    private static Optional<ConstraintApplicationResult<ConnectorTableHandle>> applyMapEntryFilter(AwsTableHandle table, ConnectorExpression expression)
+    {
+        FilterApplier filterApplier = new FilterApplier()
+        {
+            @Override
+            public Map<String, FilterType> getSupportedFilters()
+            {
+                return SUPPORTED_FILTERS;
+            }
+
+            @Override
+            public Set<String> getMapEntryFilters()
+            {
+                return Set.of("tags");
+            }
+        };
+        return filterApplier.applyFilter(table, COLUMNS, SUPPORTED_FILTERS, new Constraint(TupleDomain.all(), expression, Map.of("id", ID, "tags", TAGS)));
+    }
+
+    private static Call subscript(String functionName, String key)
+    {
+        return new Call(VARCHAR, new FunctionName(functionName), List.of(new Variable("tags", TAGS.type()), varchar(key)));
+    }
+
+    private static Call equal(ConnectorExpression left, ConnectorExpression right)
+    {
+        return new Call(BOOLEAN, EQUAL_OPERATOR_FUNCTION_NAME, List.of(left, right));
+    }
+
+    private static Constant varchar(String value)
+    {
+        return new Constant(utf8Slice(value), VARCHAR);
     }
 
     private static Optional<ConstraintApplicationResult<ConnectorTableHandle>> applyFilter(AwsTableHandle table, Map<ColumnHandle, Domain> domains)

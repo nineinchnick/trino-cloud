@@ -18,12 +18,15 @@ import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.predicate.Domain;
 import io.trino.spi.predicate.TupleDomain;
+import io.trino.spi.type.MapType;
+import io.trino.spi.type.TypeOperators;
 import org.junit.jupiter.api.Test;
 import pl.net.was.cloud.aws.AwsColumnHandle;
 import software.amazon.awssdk.services.ec2.model.Filter;
 
 import java.util.List;
 import java.util.Map;
+import java.util.stream.IntStream;
 
 import static io.airlift.slice.Slices.utf8Slice;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
@@ -32,12 +35,14 @@ import static io.trino.spi.type.TimestampWithTimeZoneType.TIMESTAMP_TZ_MILLIS;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static pl.net.was.cloud.aws.filters.Ec2FilterNames.TAG_FILTER;
 import static pl.net.was.cloud.aws.filters.Ec2FilterNames.ec2Filters;
 import static pl.net.was.cloud.aws.filters.FilterApplier.ID_BATCH_SIZE;
 import static pl.net.was.cloud.aws.filters.FilterType.EQUAL;
 
 final class TestEc2Filter
 {
+    private static final MapType TAGS_TYPE = new MapType(VARCHAR, VARCHAR, new TypeOperators());
     private static final List<ColumnMetadata> COLUMNS = List.of(
             new ColumnMetadata("region", VARCHAR),
             new ColumnMetadata("vpc_id", VARCHAR),
@@ -98,6 +103,50 @@ final class TestEc2Filter
                 Filter.builder().name("enable-lni-at-device-index").values("1").build(),
                 Filter.builder().name("instance-state-name").values("running").build());
         assertThat(FILTER.filters(TupleDomain.all())).isEmpty();
+    }
+
+    @Test
+    void testTagFilters()
+    {
+        Ec2Filter filter = new Ec2Filter(List.of(new ColumnMetadata("vpc_id", VARCHAR), new ColumnMetadata("tags", TAGS_TYPE)), ec2Filters(TAG_FILTER, "vpc-id"));
+        AwsColumnHandle tags = new AwsColumnHandle("tags", TAGS_TYPE);
+
+        assertThat(filter.getMapEntryFilters()).containsExactly("tags");
+        assertThat(filter.getSupportedFilters()).containsOnlyKeys("vpc_id");
+        assertThat(filter.filters(TupleDomain.withColumnDomains(Map.of(
+                AwsColumnHandle.mapEntry(tags, "Name"), Domain.multipleValues(VARCHAR, List.of(utf8Slice("a"), utf8Slice("b"))),
+                new AwsColumnHandle("vpc_id", VARCHAR), Domain.singleValue(VARCHAR, utf8Slice("vpc-1"))))))
+                .containsExactlyInAnyOrder(
+                        Filter.builder().name("tag:Name").values("a", "b").build(),
+                        Filter.builder().name("vpc-id").values("vpc-1").build());
+        // tag filters are not divided into splits, so too many values are left to Trino
+        List<Object> tooManyValues = IntStream.rangeClosed(0, ID_BATCH_SIZE)
+                .mapToObj(value -> (Object) utf8Slice(String.valueOf(value)))
+                .toList();
+        assertThat(filter.filters(TupleDomain.withColumnDomains(Map.of(AwsColumnHandle.mapEntry(tags, "Name"), Domain.multipleValues(VARCHAR, tooManyValues)))))
+                .isEmpty();
+    }
+
+    @Test
+    void testTagFiltersOnColumnWithDifferentName()
+    {
+        Ec2Filter filter = new Ec2Filter(List.of(new ColumnMetadata("tag_set", TAGS_TYPE)), ec2Filters().withColumnFilter("tag_set", TAG_FILTER));
+        AwsColumnHandle tagSet = new AwsColumnHandle("tag_set", TAGS_TYPE);
+
+        assertThat(filter.getMapEntryFilters()).containsExactly("tag_set");
+        assertThat(filter.filters(TupleDomain.withColumnDomains(Map.of(AwsColumnHandle.mapEntry(tagSet, "Name"), Domain.singleValue(VARCHAR, utf8Slice("a"))))))
+                .containsExactly(Filter.builder().name("tag:Name").values("a").build());
+    }
+
+    @Test
+    void testRejectsTagFilterWithoutTags()
+    {
+        assertThatThrownBy(() -> new Ec2Filter(COLUMNS, ec2Filters(TAG_FILTER)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Filters that don't match any column: [tag:<key>]");
+        assertThatThrownBy(() -> new Ec2Filter(COLUMNS, ec2Filters().withColumnFilter("vpc_id", TAG_FILTER)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Column vpc_id for filter tag:<key> is not a map with varchar keys and values: varchar");
     }
 
     @Test

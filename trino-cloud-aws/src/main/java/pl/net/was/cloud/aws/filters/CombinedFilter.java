@@ -71,6 +71,12 @@ public class CombinedFilter
         return combineMaps(FilterApplier::getKnownValues);
     }
 
+    @Override
+    public Set<String> getMapEntryFilters()
+    {
+        return combineSets(FilterApplier::getMapEntryFilters);
+    }
+
     private <V> Map<String, V> combineMaps(Function<FilterApplier, Map<String, V>> getter)
     {
         ImmutableMap.Builder<String, V> combined = ImmutableMap.builder();

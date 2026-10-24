@@ -405,6 +405,24 @@ final class TestAwsConnectorEmulator
         assertInputRows("SELECT instance_id FROM aws.ec2.instances WHERE subnet_id = 'subnet-0123456789abcdef0'", 0);
     }
 
+    // the default VPC has no tags, and the subscript operator fails for missing keys, so only the pushed-down filter makes the first query succeed
+    @Test
+    void testTagFiltersPushdown()
+    {
+        assertThat(query("SELECT vpc_id FROM aws.ec2.vpcs WHERE tags['Name'] = '%s'".formatted(NAME)))
+                .matches("VALUES VARCHAR '%s'".formatted(testData.vpcId()));
+        assertInputRows("SELECT vpc_id FROM aws.ec2.vpcs WHERE tags['Name'] = '%s'".formatted(NAME), 1);
+        assertInputRows("SELECT vpc_id FROM aws.ec2.vpcs WHERE element_at(tags, 'Name') IN ('%s', 'other')".formatted(NAME), 1);
+        assertInputRows("SELECT subnet_id FROM aws.ec2.subnets WHERE element_at(tags, 'Name') = '%s'".formatted(NAME), 1);
+        assertThat(query("SELECT count(*) FROM aws.ec2.instances WHERE tags['Name'] = '%s' AND vpc_id = '%s'".formatted(NAME, testData.vpcId())))
+                .isNotFullyPushedDown(FilterNode.class)
+                .matches("VALUES BIGINT '2'");
+        assertInputRows("SELECT instance_id FROM aws.ec2.instances WHERE tags['Name'] = 'other'", 0);
+        // EC2 treats * and ? in filter values as wildcards, but SQL equality must not
+        assertQueryReturnsEmptyResult("SELECT instance_id FROM aws.ec2.instances WHERE tags['Name'] = 'trino-*'");
+        assertQueryReturnsEmptyResult("SELECT instance_id FROM aws.ec2.instances WHERE element_at(tags, 'Name') IS NULL");
+    }
+
     @Test
     void testInstanceStateNamePushdown()
     {
