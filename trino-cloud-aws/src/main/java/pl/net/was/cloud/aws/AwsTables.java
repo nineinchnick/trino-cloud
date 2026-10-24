@@ -119,9 +119,9 @@ public class AwsTables
     private final Map<SchemaTableName, AwsTable> tables;
 
     @Inject
-    public AwsTables(Ec2Client ec2, S3Client s3)
+    public AwsTables(Ec2Clients ec2Clients, S3Client s3)
     {
-        requireNonNull(ec2, "ec2 is null");
+        Ec2Client ec2 = ec2Clients.defaultClient();
         requireNonNull(s3, "s3 is null");
         this.tables = Stream.of(
                         simpleTable("ec2", "availability_zones", AvailabilityZone.builder().sdkFields(), () -> ec2.describeAvailabilityZones().availabilityZones()),

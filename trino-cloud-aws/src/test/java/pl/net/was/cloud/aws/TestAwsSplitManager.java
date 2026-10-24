@@ -16,6 +16,7 @@ package pl.net.was.cloud.aws;
 
 import io.airlift.slice.Slice;
 import io.airlift.slice.Slices;
+import io.opentelemetry.api.OpenTelemetry;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ConnectorSplit;
 import io.trino.spi.connector.ConnectorSplitSource;
@@ -28,10 +29,6 @@ import io.trino.testing.TestingConnectorSession;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
-import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.s3.S3Client;
 
 import java.util.List;
@@ -47,18 +44,23 @@ import static pl.net.was.cloud.aws.filters.FilterApplier.ID_BATCH_SIZE;
 @TestInstance(PER_CLASS)
 final class TestAwsSplitManager
 {
-    private static final StaticCredentialsProvider CREDENTIALS = StaticCredentialsProvider.create(AwsBasicCredentials.create("access-key", "secret-key"));
+    private static final AwsConfig CONFIG = new AwsConfig()
+            .setRegion("us-east-1")
+            .setAccessKey("access-key")
+            .setSecretKey("secret-key");
 
     // the clients are only used to build the table definitions, so they never send any requests
-    private final Ec2Client ec2 = Ec2Client.builder().region(Region.US_EAST_1).credentialsProvider(CREDENTIALS).build();
-    private final S3Client s3 = S3Client.builder().region(Region.US_EAST_1).credentialsProvider(CREDENTIALS).build();
-    private final AwsSplitManager splitManager = new AwsSplitManager(new AwsTables(ec2, s3));
+    private final AwsClientConfigurer clientConfigurer = new AwsClientConfigurer(CONFIG, OpenTelemetry.noop());
+    private final Ec2Clients ec2Clients = new Ec2Clients(clientConfigurer);
+    private final S3Client s3 = clientConfigurer.configure(S3Client.builder()).build();
+    private final AwsSplitManager splitManager = new AwsSplitManager(new AwsTables(ec2Clients, s3));
 
     @AfterAll
     void tearDown()
     {
-        ec2.close();
+        ec2Clients.close();
         s3.close();
+        clientConfigurer.close();
     }
 
     @Test

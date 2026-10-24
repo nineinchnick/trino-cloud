@@ -14,11 +14,8 @@
 
 package pl.net.was.cloud.aws;
 
+import io.opentelemetry.api.OpenTelemetry;
 import org.junit.jupiter.api.Test;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
-import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.s3.S3Client;
 
 import java.io.IOException;
@@ -65,10 +62,14 @@ final class TestAwsDocumentation
     // the clients are only used to build the table definitions, so they never send any requests
     private static Set<String> connectorTables()
     {
-        StaticCredentialsProvider credentials = StaticCredentialsProvider.create(AwsBasicCredentials.create("access-key", "secret-key"));
-        try (Ec2Client ec2 = Ec2Client.builder().region(Region.US_EAST_1).credentialsProvider(credentials).build();
-                S3Client s3 = S3Client.builder().region(Region.US_EAST_1).credentialsProvider(credentials).build()) {
-            return new AwsTables(ec2, s3).all().stream()
+        AwsConfig config = new AwsConfig()
+                .setRegion("us-east-1")
+                .setAccessKey("access-key")
+                .setSecretKey("secret-key");
+        try (AwsClientConfigurer clientConfigurer = new AwsClientConfigurer(config, OpenTelemetry.noop());
+                Ec2Clients ec2Clients = new Ec2Clients(clientConfigurer);
+                S3Client s3 = clientConfigurer.configure(S3Client.builder()).build()) {
+            return new AwsTables(ec2Clients, s3).all().stream()
                     .map(table -> table.name().toString())
                     .collect(toImmutableSet());
         }

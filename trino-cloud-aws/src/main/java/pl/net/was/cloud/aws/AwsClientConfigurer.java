@@ -87,6 +87,11 @@ public class AwsClientConfigurer
                 .build();
     }
 
+    public Region region()
+    {
+        return region;
+    }
+
     public <B extends AwsClientBuilder<B, ?> & AwsSyncClientBuilder<B, ?>> B configure(B builder)
     {
         return configureClient(builder)
