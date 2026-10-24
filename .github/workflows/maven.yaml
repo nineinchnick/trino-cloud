@@ -29,6 +29,9 @@ jobs:
           echo "::add-matcher::.github/problem-matcher.json"
           echo "::remove-matcher owner=java::"
 
+      - name: Compile with Error Prone
+        run: ./mvnw -B clean test-compile -Dair.check.skip-all=true -P errorprone-compiler
+
       - name: Build with Maven
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
