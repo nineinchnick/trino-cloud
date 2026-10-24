@@ -39,4 +39,10 @@ public class SnapshotFilter
     {
         return Set.of("owner_id", "snapshot_id", "volume_id");
     }
+
+    @Override
+    public Map<String, Integer> getSplitBatchSizes()
+    {
+        return Map.of("snapshot_id", ID_BATCH_SIZE);
+    }
 }

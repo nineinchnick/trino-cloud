@@ -14,6 +14,7 @@
 
 package pl.net.was.cloud.aws;
 
+import com.google.common.collect.ImmutableList;
 import io.trino.sql.planner.plan.FilterNode;
 import io.trino.testing.AbstractTestQueryFramework;
 import io.trino.testing.MaterializedResult;
@@ -22,6 +23,7 @@ import io.trino.testing.containers.Floci;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.stream.IntStream;
 
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.util.stream.Collectors.joining;
@@ -36,6 +38,7 @@ import static pl.net.was.cloud.aws.EmulatorTestData.MANY_OBJECTS_LIVE_COUNT;
 import static pl.net.was.cloud.aws.EmulatorTestData.NAME;
 import static pl.net.was.cloud.aws.EmulatorTestData.OBJECTS_BUCKET;
 import static pl.net.was.cloud.aws.EmulatorTestData.VERSIONED_BUCKET;
+import static pl.net.was.cloud.aws.filters.FilterApplier.ID_BATCH_SIZE;
 
 final class TestAwsConnectorEmulator
         extends AbstractTestQueryFramework
@@ -157,6 +160,23 @@ final class TestAwsConnectorEmulator
     {
         assertQueryReturnsEmptyResult("SELECT instance_id FROM aws.ec2.instances WHERE instance_id = 'i-0123456789abcdef0'");
         assertQueryReturnsEmptyResult("SELECT instance_id FROM aws.ec2.instances WHERE instance_id = 'not-an-instance-id'");
+    }
+
+    @Test
+    void testManyInstanceIds()
+    {
+        List<String> instanceIds = ImmutableList.<String>builder()
+                .addAll(testData.instanceIds())
+                .addAll(IntStream.range(0, 2 * ID_BATCH_SIZE)
+                        .mapToObj("i-%017x"::formatted)
+                        .toList())
+                .build();
+        String sql = "SELECT instance_id FROM aws.ec2.instances WHERE instance_id IN (%s)".formatted(sqlList(instanceIds));
+        assertThat(query(sql))
+                .matches(testData.instanceIds().stream()
+                        .map("VARCHAR '%s'"::formatted)
+                        .collect(joining(", ", "VALUES ", "")));
+        assertSplitCount(sql, 3);
     }
 
     @Test
@@ -306,6 +326,21 @@ final class TestAwsConnectorEmulator
         // EC2 treats * and ? in filter values as wildcards, but SQL equality must not
         assertQueryReturnsEmptyResult("SELECT image_id FROM aws.ec2.images WHERE owner_id = '%s' AND name = 'amzn2*'".formatted(IMAGE_OWNER_ID));
         assertQueryReturnsEmptyResult("SELECT image_id FROM aws.ec2.images WHERE owner_id = '%s' AND name = 'amzn2-ami-hvm-2.0.20230404.0-x86_64-gp?'".formatted(IMAGE_OWNER_ID));
+    }
+
+    @Test
+    void testManyImageIds()
+    {
+        List<String> imageIds = ImmutableList.<String>builder()
+                .add(IMAGE_ID, testData.ownImageId())
+                .addAll(IntStream.range(0, ID_BATCH_SIZE)
+                        .mapToObj("not-an-image-id-%d"::formatted)
+                        .toList())
+                .build();
+        String sql = "SELECT image_id FROM aws.ec2.images WHERE image_id IN (%s)".formatted(sqlList(imageIds));
+        assertThat(query(sql))
+                .matches("VALUES VARCHAR '%s', VARCHAR '%s'".formatted(IMAGE_ID, testData.ownImageId()));
+        assertSplitCount(sql, 2);
     }
 
     @Test
@@ -471,8 +506,10 @@ final class TestAwsConnectorEmulator
     @Test
     void testObjectsInManyBuckets()
     {
-        assertThat(query("SELECT bucket_name, key FROM aws.s3.objects WHERE bucket_name IN ('%s', '%s')".formatted(OBJECTS_BUCKET, VERSIONED_BUCKET)))
+        String sql = "SELECT bucket_name, key FROM aws.s3.objects WHERE bucket_name IN ('%s', '%s')".formatted(OBJECTS_BUCKET, VERSIONED_BUCKET);
+        assertThat(query(sql))
                 .matches("VALUES (VARCHAR '%1$s', VARCHAR 'a.txt'), (VARCHAR '%1$s', VARCHAR 'dir/b.txt'), (VARCHAR '%2$s', VARCHAR 'changed.txt')".formatted(OBJECTS_BUCKET, VERSIONED_BUCKET));
+        assertSplitCount(sql, 2);
     }
 
     @Test
@@ -501,5 +538,17 @@ final class TestAwsConnectorEmulator
         assertThat(query(sql)).failure()
                 .hasErrorCode(AWS_MISSING_PREDICATE)
                 .hasMessage("Missing required filter on %s.bucket_name. Add a condition like bucket_name = '...' or bucket_name IN ('...', '...') to the WHERE clause".formatted(table));
+    }
+
+    private static String sqlList(List<String> values)
+    {
+        return values.stream()
+                .map("'%s'"::formatted)
+                .collect(joining(", "));
+    }
+
+    private void assertSplitCount(String sql, int expectedSplits)
+    {
+        assertQueryStats(getSession(), sql, stats -> assertThat(TableScanSplits.count(stats)).isEqualTo(expectedSplits), _ -> {});
     }
 }

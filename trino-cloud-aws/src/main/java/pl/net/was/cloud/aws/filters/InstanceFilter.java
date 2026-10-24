@@ -35,4 +35,10 @@ public class InstanceFilter
     {
         return Set.of("instance_id");
     }
+
+    @Override
+    public Map<String, Integer> getSplitBatchSizes()
+    {
+        return Map.of("instance_id", ID_BATCH_SIZE);
+    }
 }
