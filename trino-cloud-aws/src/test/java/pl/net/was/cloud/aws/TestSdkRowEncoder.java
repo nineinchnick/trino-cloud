@@ -15,6 +15,7 @@
 package pl.net.was.cloud.aws;
 
 import com.google.common.collect.Iterables;
+import io.trino.spi.block.Block;
 import io.trino.spi.block.MapBlockBuilder;
 import io.trino.spi.type.MapType;
 import io.trino.spi.type.TypeOperators;
@@ -22,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.core.SdkPojo;
 import software.amazon.awssdk.services.ec2.model.Instance;
 import software.amazon.awssdk.services.ec2.model.NatGateway;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 
 import java.time.Instant;
 import java.util.List;
@@ -32,6 +34,7 @@ import static io.airlift.slice.Slices.utf8Slice;
 import static io.trino.spi.type.Timestamps.MICROSECONDS_PER_SECOND;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.entry;
 
 final class TestSdkRowEncoder
 {
@@ -72,6 +75,41 @@ final class TestSdkRowEncoder
         assertThat(decodeMap(encodedValue(instance, "Placement")))
                 .containsEntry("AvailabilityZone", "us-east-1a")
                 .containsEntry("HostId", null);
+    }
+
+    @Test
+    void testUnsetListIsNull()
+    {
+        Instance instance = Instance.builder()
+                .securityGroups(group -> group.groupId("sg-0123456789abcdef0"))
+                .build();
+
+        Block securityGroups = (Block) encodedValue(instance, "SecurityGroups");
+        assertThat(securityGroups.getPositionCount()).isEqualTo(1);
+        assertThat(encodedValue(instance, "Tags")).isNull();
+        assertThat(encodedValue(instance, "ProductCodes")).isNull();
+    }
+
+    @Test
+    void testUnsetNestedListIsNull()
+    {
+        Instance instance = Instance.builder()
+                .networkInterfaces(networkInterface -> networkInterface.networkInterfaceId("eni-0123456789abcdef0"))
+                .build();
+
+        Block networkInterfaces = (Block) encodedValue(instance, "NetworkInterfaces");
+        assertThat(networkInterfaces.getPositionCount()).isEqualTo(1);
+        assertThat(decodeMap(MAP_TYPE.getObject(networkInterfaces, 0)))
+                .containsEntry("NetworkInterfaceId", "eni-0123456789abcdef0")
+                .containsEntry("Groups", null);
+    }
+
+    @Test
+    void testUnsetMapIsNull()
+    {
+        assertThat(encodedValue(GetObjectResponse.builder().build(), "Metadata")).isNull();
+        assertThat(decodeMap(encodedValue(GetObjectResponse.builder().metadata(Map.of("owner", "trino")).build(), "Metadata")))
+                .containsExactly(entry("owner", "trino"));
     }
 
     private static Object encodedValue(SdkPojo object, String memberName)
