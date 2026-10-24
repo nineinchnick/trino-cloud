@@ -15,12 +15,12 @@
 package pl.net.was.cloud.aws;
 
 import com.google.inject.Binder;
+import com.google.inject.Inject;
 import com.google.inject.Module;
+import com.google.inject.Provider;
 import com.google.inject.Scopes;
 import io.trino.spi.NodeManager;
 import io.trino.spi.type.TypeManager;
-import jakarta.inject.Inject;
-import jakarta.inject.Provider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -34,7 +34,6 @@ public class AwsModule
     private final NodeManager nodeManager;
     private final TypeManager typeManager;
 
-    @Inject
     public AwsModule(NodeManager nodeManager, TypeManager typeManager)
     {
         this.nodeManager = requireNonNull(nodeManager, "nodeManager is null");

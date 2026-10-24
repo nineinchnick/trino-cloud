@@ -16,6 +16,7 @@ package pl.net.was.cloud.aws;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
+import com.google.inject.Inject;
 import io.airlift.slice.Slices;
 import io.trino.spi.TrinoException;
 import io.trino.spi.block.BlockBuilder;
@@ -34,7 +35,6 @@ import io.trino.spi.connector.RecordSet;
 import io.trino.spi.type.MapType;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeOperators;
-import jakarta.inject.Inject;
 import pl.net.was.cloud.aws.filters.FilterApplier;
 import software.amazon.awssdk.core.SdkField;
 import software.amazon.awssdk.core.SdkPojo;
