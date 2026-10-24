@@ -109,7 +109,7 @@ public interface FilterApplier
                 table.withConstraint(currentConstraint),
                 summary,
                 constraint.getExpression(),
-                true));
+                false));
     }
 
     private TupleDomain<ColumnHandle> normalizeConstraint(AwsColumnHandle column, FilterType supportedFilter, TupleDomain<ColumnHandle> constraint)
