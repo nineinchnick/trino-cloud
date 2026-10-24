@@ -97,7 +97,7 @@ final class TestAwsTables
                 S3Client s3 = clientConfigurer.configure(S3Client.builder()).build()) {
             AwsTable images = new AwsTables(ec2Clients, s3).require(new SchemaTableName("ec2", "images"));
             assertThat(images.column("instance_id").getComment()).contains("Only used by INSERT, always NULL when reading");
-            assertThat(images.column("image_id").getComment()).isEmpty();
+            assertThat(images.column("image_id").getComment()).hasValue("Pushed down: = and IN");
         }
     }
 

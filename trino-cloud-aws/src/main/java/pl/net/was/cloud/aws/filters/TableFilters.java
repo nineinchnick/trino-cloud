@@ -105,6 +105,15 @@ public final class TableFilters
     }
 
     /**
+     * Descriptions of the pushed-down predicates, by column name.
+     */
+    public Map<String, String> descriptions()
+    {
+        return filters.stream()
+                .collect(toImmutableMap(filter -> filter.column().name(), filter -> filter.filter().description()));
+    }
+
+    /**
      * Names of the columns with a filter.
      */
     public Set<String> columns()

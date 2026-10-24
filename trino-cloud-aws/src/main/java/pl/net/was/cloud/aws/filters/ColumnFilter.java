@@ -180,6 +180,20 @@ public final class ColumnFilter
         return builder.build();
     }
 
+    /**
+     * The predicates pushed down to AWS, shown in the comment of the column.
+     */
+    public String description()
+    {
+        if (kind == Kind.TAG_FILTERS) {
+            return "Pushed down: = and IN on map entries";
+        }
+        if (prefixes) {
+            return "Pushed down: =, IN and LIKE 'prefix%'";
+        }
+        return "Pushed down: = and IN";
+    }
+
     public String column()
     {
         return column;
