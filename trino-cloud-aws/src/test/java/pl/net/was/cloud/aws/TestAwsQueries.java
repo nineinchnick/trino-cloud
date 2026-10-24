@@ -32,18 +32,22 @@ public class TestAwsQueries
     public void showTables()
     {
         assertQuery("SHOW SCHEMAS FROM aws", "VALUES 'ec2', 'information_schema', 's3'");
-        assertQuery("SHOW TABLES FROM aws.ec2",
+        assertQuery(
+                "SHOW TABLES FROM aws.ec2",
                 "VALUES 'availability_zones', 'images', 'instance_types', 'instances', 'key_pairs', 'launch_templates', 'nat_gateways', 'network_interfaces', 'placement_groups', 'prefix_lists', 'public_ipv4_pools', 'regions', 'route_tables', 'security_groups', 'snapshots', 'subnets', 'tags', 'volumes', 'vpc_endpoints', 'vpc_peering_connections', 'vpcs', 'vpn_connections', 'vpn_gateways'");
-        assertQuery("SHOW TABLES FROM aws.s3",
+        assertQuery(
+                "SHOW TABLES FROM aws.s3",
                 "VALUES 'buckets', 'deleted_objects', 'objects', 'object_versions'");
     }
 
     @Test
     public void selectFromTable()
     {
-        assertQuery("SELECT instance_type FROM aws.ec2.instances WHERE instance_id = 'i-076720e508bb0f22b'",
+        assertQuery(
+                "SELECT instance_type FROM aws.ec2.instances WHERE instance_id = 'i-076720e508bb0f22b'",
                 "VALUES ('t3.micro')");
-        assertQuery("SELECT creation_date FROM aws.s3.buckets WHERE name = 'jan.was'",
+        assertQuery(
+                "SELECT creation_date FROM aws.s3.buckets WHERE name = 'jan.was'",
                 "VALUES ('2026-04-30T03:06:24')");
     }
 }

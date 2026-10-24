@@ -97,7 +97,7 @@ public interface FilterApplier
             found = true;
             // remove from remaining constraints
             summary = summary.filter(
-                    (columnHandle, tupleDomain) -> !columnHandle.equals(column));
+                    (columnHandle, _) -> !columnHandle.equals(column));
         }
         if (!found) {
             return Optional.empty();
@@ -119,7 +119,7 @@ public interface FilterApplier
             return null;
         }
         TupleDomain<ColumnHandle> newConstraint = constraint.filter(
-                (columnHandle, tupleDomain) -> columnHandle.equals(column));
+                (columnHandle, _) -> columnHandle.equals(column));
         if (!domain.getType().isOrderable()) {
             return newConstraint;
         }
@@ -132,8 +132,7 @@ public interface FilterApplier
                     return null;
                 }
                 newConstraint = TupleDomain.withColumnDomains(Map.of(
-                        column,
-                        Domain.create(
+                        column, Domain.create(
                                 ValueSet.ofRanges(
                                         Range.greaterThanOrEqual(
                                                 domain.getType(),
@@ -202,8 +201,7 @@ public interface FilterApplier
                 }
                 return domain.getSingleValue();
             }
-            default ->
-                throw new TrinoException(INVALID_ROW_FILTER, "Unexpected constraint for " + column.getName() + "(" + column.getType().getBaseName() + ")");
+            default -> throw new TrinoException(INVALID_ROW_FILTER, "Unexpected constraint for " + column.getName() + "(" + column.getType().getBaseName() + ")");
         }
     }
 
