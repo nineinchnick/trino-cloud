@@ -42,7 +42,6 @@ import io.trino.spi.type.ArrayType;
 import io.trino.spi.type.MapType;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeOperators;
-import jakarta.inject.Inject;
 import pl.net.was.cloud.aws.filters.BucketFilter;
 import pl.net.was.cloud.aws.filters.FilterApplier;
 import pl.net.was.cloud.aws.filters.ImageFilter;
@@ -138,7 +137,6 @@ public class AwsMetadata
             .put("s3.deleted_objects", new BucketFilter())
             .build();
 
-    @Inject
     public AwsMetadata()
     {
         // must match AwsRecordSetProvider.rowGetters
