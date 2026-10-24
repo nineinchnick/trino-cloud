@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.stream.IntStream;
 
+import static com.google.common.collect.MoreCollectors.onlyElement;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -524,6 +525,17 @@ final class TestAwsConnectorEmulator
     }
 
     @Test
+    void testColumnComments()
+    {
+        assertThat(columnComment("ec2", "images", "instance_id")).isEqualTo("Only used by INSERT, always NULL when reading");
+        assertThat(columnComment("ec2", "images", "image_id")).isEqualTo("");
+        assertThat(columnComment("s3", "objects", "bucket_name")).isEqualTo("Required filter: use = or IN");
+        assertQuery(
+                "SELECT comment FROM aws.information_schema.columns WHERE table_schema = 'ec2' AND table_name = 'images' AND column_name = 'instance_id'",
+                "VALUES 'Only used by INSERT, always NULL when reading'");
+    }
+
+    @Test
     void testObjectsMetadataWithoutBucketName()
     {
         assertThat(query("DESCRIBE aws.s3.objects")).succeeds();
@@ -538,6 +550,15 @@ final class TestAwsConnectorEmulator
         assertThat(query(sql)).failure()
                 .hasErrorCode(AWS_MISSING_PREDICATE)
                 .hasMessage("Missing required filter on %s.bucket_name. Add a condition like bucket_name = '...' or bucket_name IN ('...', '...') to the WHERE clause".formatted(table));
+    }
+
+    // DESCRIBE has the column name in the first field, and the comment in the last one
+    private Object columnComment(String schema, String table, String column)
+    {
+        return computeActual("DESCRIBE aws.%s.%s".formatted(schema, table)).getMaterializedRows().stream()
+                .filter(row -> row.getField(0).equals(column))
+                .map(row -> row.getField(3))
+                .collect(onlyElement());
     }
 
     private static String sqlList(List<String> values)

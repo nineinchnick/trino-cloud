@@ -65,6 +65,21 @@ final class TestSdkTableColumns
     }
 
     @Test
+    void testInputOnlyColumn()
+    {
+        SdkTableColumns columns = SdkTableColumns.builder(S3Object.builder().sdkFields())
+                .prependInputOnly("source", VARCHAR)
+                .build();
+
+        ColumnMetadata column = columns.columnMetadata().getFirst();
+        assertThat(column.getName()).isEqualTo("source");
+        assertThat(column.getType()).isEqualTo(VARCHAR);
+        assertThat(column.getComment()).contains("Only used by INSERT, always NULL when reading");
+        assertThat(encode(columns, new SdkRow(S3Object.builder().key("a").build()), 0)).isNull();
+        assertThat(columns.columnMetadata().get(1).getComment()).isEmpty();
+    }
+
+    @Test
     void testInsertAfterUnknownColumn()
     {
         assertThatThrownBy(() -> SdkTableColumns.builder(S3Object.builder().sdkFields())

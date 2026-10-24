@@ -15,6 +15,7 @@ package pl.net.was.cloud.aws;
 
 import io.opentelemetry.api.OpenTelemetry;
 import io.trino.spi.connector.ColumnMetadata;
+import io.trino.spi.connector.SchemaTableName;
 import org.junit.jupiter.api.Test;
 import pl.net.was.cloud.aws.AwsTables.RegionalRowId;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -68,6 +69,22 @@ final class TestAwsTables
                 assertThat(table.requireFilterApplier().getSplitBatchSizes()).as(table.name().toString()).containsEntry("region", 1);
                 assertThat(table.requireFilterApplier().getKnownValues()).as(table.name().toString()).containsEntry("region", List.of("us-east-1"));
             }
+        }
+    }
+
+    @Test
+    void testInputOnlyColumns()
+    {
+        AwsConfig config = new AwsConfig()
+                .setRegion("us-east-1")
+                .setAccessKey("access-key")
+                .setSecretKey("secret-key");
+        try (AwsClientConfigurer clientConfigurer = new AwsClientConfigurer(config, OpenTelemetry.noop());
+                Ec2Clients ec2Clients = new Ec2Clients(clientConfigurer, config);
+                S3Client s3 = clientConfigurer.configure(S3Client.builder()).build()) {
+            AwsTable images = new AwsTables(ec2Clients, s3).require(new SchemaTableName("ec2", "images"));
+            assertThat(images.column("instance_id").getComment()).contains("Only used by INSERT, always NULL when reading");
+            assertThat(images.column("image_id").getComment()).isEmpty();
         }
     }
 
