@@ -11,34 +11,45 @@ environmental variables set, same as for
 [CLI access](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html):
 * `AWS_ACCESS_KEY_ID`
 * `AWS_SECRET_ACCESS_KEY`
+* `AWS_SESSION_TOKEN`, only for temporary credentials, like SSO or an assumed role
 * `AWS_REGION`
+
+Replace `<version>` with the [latest release](https://github.com/nineinchnick/trino-cloud/releases), without the `v` prefix:
 
 ```bash
 docker run \
-  --tmpfs /etc/trino/catalog \
-  -v $(pwd)/catalog/aws.properties:/etc/trino/catalog/aws.properties \
   -e AWS_ACCESS_KEY_ID \
   -e AWS_SECRET_ACCESS_KEY \
+  -e AWS_SESSION_TOKEN \
   -e AWS_REGION \
   -p 8080:8080 \
   --name trino-cloud-aws \
-  nineinchnick/trino-cloud:0.70
+  nineinchnick/trino-cloud:<version>
 ```
+
+The image already includes the `aws` catalog, configured by [catalog/aws.properties](catalog/aws.properties).
+See [Credentials](trino-cloud-aws/README.md#credentials) for other ways to pass credentials, like AWS CLI profiles.
 
 Then use your favourite SQL client to connect to Trino running at http://localhost:8080
 
 # Usage
 
-Download one of the ZIP packages, unzip it and copy the `trino-cloud-aws-0.70` directory to the plugin directory on every node in your Trino cluster.
-Create a `aws.properties` file in your Trino catalog directory and configure the credentials for a specific AWS account.
-To manage multiple accounts at the same time, create separate config files for multiple catalogs.
+Download the ZIP package from the [latest release](https://github.com/nineinchnick/trino-cloud/releases),
+unzip it and copy the `trino-cloud-aws-<version>` directory to the plugin directory on every node in your Trino cluster.
+Each release is built for one Trino version, and the plugin might not load in other versions.
+Check the `dep.trino.version` property in the [pom.xml](pom.xml) of the release tag.
+Create a `aws.properties` file in your Trino catalog directory:
 
 ```
 connector.name=aws
 region=${ENV:AWS_REGION}
 ```
 
-After reloading Trino, you should be able to connect to the `aws` catalog.
+The connector reads credentials using the AWS SDK default credentials provider chain.
+All catalogs in one Trino server use the same credentials, so you can't use multiple AWS accounts at the same time yet,
+see [#281](https://github.com/nineinchnick/trino-cloud/issues/281).
+
+After restarting Trino, you should be able to connect to the `aws` catalog.
 
 # Development
 

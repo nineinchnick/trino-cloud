@@ -5,19 +5,25 @@ This is a Trino connector to access AWS resources using SQL.
 
 # Quick Start
 
-To run a Docker container with this connector, set the appropriate environmental variables, and run the following:
+To run a Docker container with this connector, set the appropriate environmental variables, and run the following,
+replacing `<version>` with the [latest release](https://github.com/nineinchnick/trino-cloud/releases), without the `v` prefix:
 ```bash
 docker run \
   -d \
   --name trino-cloud \
   -e AWS_ACCESS_KEY_ID \
   -e AWS_SECRET_ACCESS_KEY \
+  -e AWS_SESSION_TOKEN \
   -e AWS_REGION \
   -p 8080:8080 \
-  nineinchnick/trino-cloud:0.70
+  nineinchnick/trino-cloud:<version>
 ```
 
-Then use your favourite SQL client to connect to Trino running at http://localhost:8080
+Then use your favourite SQL client to connect to Trino running at http://localhost:8080,
+or use the Trino CLI included in the image:
+```bash
+docker exec -it trino-cloud trino --catalog aws --schema ec2
+```
 
 # Usage
 
@@ -50,26 +56,40 @@ Not all resources are mapped yet, here's a list of the available schemas and tab
 * `s3.objects`
 * `s3.object_versions`
 
-The following tables support inserting into:
-* `ec2.images`
-* `ec2.instances`, with limited `UPDATE` and `DELETE` support
-* `s3.buckets`
+Some tables can only be queried with a filter in the `WHERE` clause:
+* `s3.objects`, `s3.object_versions` and `s3.deleted_objects` require `bucket_name = '...'`
+* `ec2.images` requires a filter on `image_id`, `name` or `owner_id`,
+  see [#16](https://github.com/nineinchnick/trino-cloud/issues/16)
 
 For example:
 ```sql
-INSERT INTO instances (image_id, instance_type, key_name) VALUES ('ami-05f7491af5eef733a', 't2.micro', 'default')
+SELECT key, size FROM s3.objects WHERE bucket_name = 'my-bucket';
 ```
+
+The following tables support inserting into:
+* `ec2.images`
+* `ec2.instances`
+
+Only `VARCHAR` columns can be set for now, see [#285](https://github.com/nineinchnick/trino-cloud/issues/285).
+For example:
+```sql
+INSERT INTO ec2.instances (image_id, instance_type, key_name) VALUES ('ami-05f7491af5eef733a', 't2.micro', 'default');
+```
+
+The `ec2.instances` table also has limited `UPDATE` and `DELETE` support.
+
+> Warning: `UPDATE` and `DELETE` are currently broken and fail for every row,
+> see [#283](https://github.com/nineinchnick/trino-cloud/issues/283).
+> The examples below show how they're meant to work after it's fixed.
 
 To stop an instance, update the instance row:
 ```sql
-UPDATE instances SET state = MAP(ARRAY['Name'], ARRAY['stopped']) WHERE instance_id = 'i-04a7cf7ca232cd251';
+UPDATE ec2.instances SET state = MAP(ARRAY['Name'], ARRAY['stopped']) WHERE instance_id = 'i-04a7cf7ca232cd251';
 ```
-
-> Note: ``UPDATE`` requires setting `deprecated.legacy-update-delete-implementation=true` in the Trino configuration.
 
 To terminate it, delete the row:
 ```sql
-DELETE FROM instances WHERE instance_id = 'i-04a7cf7ca232cd251';
+DELETE FROM ec2.instances WHERE instance_id = 'i-04a7cf7ca232cd251';
 ```
 
 > Note that the row won't be immediately deleted if the instance is running,
@@ -81,38 +101,69 @@ The following configuration options are recognized by this connector:
 
 * `region`
 
+## Credentials
+
+The connector reads credentials using the
+[AWS SDK default credentials provider chain](https://docs.aws.amazon.com/sdk-for-java/latest/developer-guide/credentials-chain.html).
+It checks, in order: Java system properties, environment variables like `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
+and `AWS_SESSION_TOKEN`, web identity tokens, the shared `~/.aws/credentials` and `~/.aws/config` files,
+and container or EC2 instance roles.
+
+To use a profile from the AWS CLI configuration, mount the `~/.aws` directory and set `AWS_PROFILE`:
+```bash
+docker run \
+  -d \
+  --name trino-cloud \
+  -v ~/.aws:/home/trino/.aws:ro \
+  -e AWS_PROFILE=my-profile \
+  -e AWS_REGION \
+  -p 8080:8080 \
+  nineinchnick/trino-cloud:<version>
+```
+
+For SSO profiles, run `aws sso login --profile my-profile` first, so the cached token is valid.
+
+All catalogs in one Trino server use the same credentials, so you can't use multiple AWS accounts at the same time yet,
+see [#281](https://github.com/nineinchnick/trino-cloud/issues/281).
+
 # Build
 
 Run all the unit test classes.
 ```
-mvn test
+./mvnw test
 ```
 
-Creates a deployable jar file
+Creates a deployable plugin directory and ZIP file in `trino-cloud-aws/target`
 ```
-mvn clean package
+./mvnw clean package
 ```
 
 # Deploy
 
-An example command to run the Trino server with the aws plugin and catalog enabled:
+An example command to run the Trino server with the aws plugin and catalog enabled,
+using the plugin built from the current checkout.
+Replace `<version>` with the project version from [pom.xml](../pom.xml), like `0.84-SNAPSHOT`,
+and `<trino-version>` with the `dep.trino.version` property from the same file, like `483`.
+The plugin only loads in the Trino version it was built for.
 
 ```bash
 src=$(git rev-parse --show-toplevel)
 docker run \
-  -v $src/trino-cloud-aws/target/trino-cloud-aws-0.71-SNAPSHOT:/usr/lib/trino/plugin/aws \
+  -v $src/trino-cloud-aws/target/trino-cloud-aws-<version>:/usr/lib/trino/plugin/aws \
+  -v $src/catalog/aws.properties:/etc/trino/catalog/aws.properties \
   -e AWS_ACCESS_KEY_ID \
   -e AWS_SECRET_ACCESS_KEY \
+  -e AWS_SESSION_TOKEN \
   -e AWS_REGION \
   -p 8080:8080 \
   --name trino \
   -d \
-  trinodb/trino:462
+  trinodb/trino:<trino-version>
 ```
 
 Connect to that server using:
 ```bash
-docker run -it --rm --link trino trinodb/trino:462 trino --server trino:8080 --catalog aws --schema default
+docker exec -it trino trino --catalog aws --schema ec2
 ```
 
 # Adding new tables
@@ -128,7 +179,8 @@ To add a new table that can be read from:
 
 ## INSERT support
 
-To add INSERT support for any table, append new entries to the `fields` and `writers` properties in `AwsPageSink` class.
+To add INSERT support for any table, append new entries to the `fields` and `inserters` properties in the
+[AwsPageSink](src/main/java/pl/net/was/cloud/aws/AwsPageSink.java) class.
 By default, all table columns are optimistically mapped to an AWS SDK request fields.
 Some columns might not have matching fields in a request.
 
@@ -139,6 +191,6 @@ Some columns might not have matching fields in a request.
 
 1. Add a hidden `row_id` column in `AwsMetadata.columns`. The column should be populated with a unique identifier value in `AwsRecordSetProvider.rowGetters`.
 1. Define the primary key in `AwsMetadata.primaryKeys`.
-1. Add an entry to the `updaters` and/or `deleters` maps in `AwsPageSourceProvider` maps.
+1. Add an entry to the `updaters` and/or `deleters` maps in [AwsMergeSink](src/main/java/pl/net/was/cloud/aws/AwsMergeSink.java).
 
 Updates might perform multiple different API calls, depending on which columns are being set.
