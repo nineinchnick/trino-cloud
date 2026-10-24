@@ -94,7 +94,7 @@ public interface FilterApplier
             // merge with other pushed down constraints
             currentConstraint = currentConstraint.intersect(newConstraint);
             found = true;
-            if (getUnenforcedFilters().contains(columnName)) {
+            if (getUnenforcedFilters().contains(columnName) || !isEnforcedBy(column, summary, newConstraint)) {
                 continue;
             }
             // remove from remaining constraints
@@ -110,6 +110,12 @@ public interface FilterApplier
                 summary,
                 constraint.getExpression(),
                 false));
+    }
+
+    private static boolean isEnforcedBy(ColumnHandle column, TupleDomain<ColumnHandle> summary, TupleDomain<ColumnHandle> pushedConstraint)
+    {
+        //noinspection OptionalGetWithoutIsPresent
+        return summary.getDomains().get().get(column).equals(pushedConstraint.getDomains().get().get(column));
     }
 
     private TupleDomain<ColumnHandle> normalizeConstraint(AwsColumnHandle column, FilterType supportedFilter, TupleDomain<ColumnHandle> constraint)
@@ -131,6 +137,10 @@ public interface FilterApplier
                 Range span = domain.getValues().getRanges().getSpan();
                 if (span.isLowUnbounded()) {
                     log.debug("Not pushing down filter on %s because it does not have a lower bound: %s", column.name(), domain);
+                    return null;
+                }
+                if (domain.isNullAllowed()) {
+                    log.debug("Not pushing down filter on %s because it allows nulls: %s", column.name(), domain);
                     return null;
                 }
                 newConstraint = TupleDomain.withColumnDomains(Map.of(
