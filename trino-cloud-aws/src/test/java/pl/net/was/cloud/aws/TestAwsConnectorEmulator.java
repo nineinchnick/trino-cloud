@@ -361,6 +361,18 @@ final class TestAwsConnectorEmulator
     }
 
     @Test
+    void testWritesRejectedWhenReadOnly()
+    {
+        String instanceId = testData.instanceIds().getFirst();
+        String expectedMessage = "This catalog is read-only, set aws.read-only=false to enable INSERT, UPDATE and DELETE";
+        assertQueryFails("INSERT INTO aws.ec2.instances (image_id, instance_type) VALUES ('%s', '%s')".formatted(IMAGE_ID, INSTANCE_TYPE), expectedMessage);
+        assertQueryFails("UPDATE aws.ec2.instances SET instance_type = 't3.small' WHERE instance_id = '%s'".formatted(instanceId), expectedMessage);
+        assertQueryFails("DELETE FROM aws.ec2.instances WHERE instance_id = '%s'".formatted(instanceId), expectedMessage);
+        assertQueryFails("DELETE FROM aws.ec2.images WHERE image_id = '%s'".formatted(IMAGE_ID), expectedMessage);
+        assertQuery("SELECT count(*) FROM aws.ec2.instances WHERE subnet_id = '%s'".formatted(testData.subnetId()), "VALUES 2");
+    }
+
+    @Test
     void testObjectsRequireBucketName()
     {
         assertQueryFails("SELECT * FROM aws.s3.objects", "Missing required constraint for s3.objects.bucket_name");

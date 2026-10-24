@@ -39,6 +39,7 @@ public class AwsConfig
     private int maxConnections = 50;
     private RetryMode retryMode = RetryMode.ADAPTIVE;
     private int maxErrorRetries = 10;
+    private boolean readOnly = true;
 
     public Optional<String> getRegion()
     {
@@ -186,6 +187,19 @@ public class AwsConfig
     public AwsConfig setMaxErrorRetries(int maxErrorRetries)
     {
         this.maxErrorRetries = maxErrorRetries;
+        return this;
+    }
+
+    public boolean isReadOnly()
+    {
+        return readOnly;
+    }
+
+    @Config("aws.read-only")
+    @ConfigDescription("Reject INSERT, UPDATE and DELETE statements, which create, modify and remove AWS resources")
+    public AwsConfig setReadOnly(boolean readOnly)
+    {
+        this.readOnly = readOnly;
         return this;
     }
 

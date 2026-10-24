@@ -56,11 +56,13 @@ public class AwsMetadata
         implements ConnectorMetadata
 {
     private final AwsTables tables;
+    private final boolean readOnly;
 
     @Inject
-    public AwsMetadata(AwsTables tables)
+    public AwsMetadata(AwsTables tables, AwsConfig config)
     {
         this.tables = requireNonNull(tables, "tables is null");
+        this.readOnly = config.isReadOnly();
     }
 
     @Override
@@ -146,6 +148,7 @@ public class AwsMetadata
             List<ColumnHandle> columns,
             RetryMode retryMode)
     {
+        checkWritesEnabled();
         if (retryMode != RetryMode.NO_RETRIES) {
             throw new TrinoException(NOT_SUPPORTED, "This connector does not support query retries");
         }
@@ -194,6 +197,7 @@ public class AwsMetadata
             Map<Integer, Collection<ColumnHandle>> updateCaseColumns,
             RetryMode retryMode)
     {
+        checkWritesEnabled();
         if (retryMode != RetryMode.NO_RETRIES) {
             throw new TrinoException(NOT_SUPPORTED, "This connector does not support query retries");
         }
@@ -213,6 +217,13 @@ public class AwsMetadata
             Collection<ComputedStatistics> computedStatistics)
     {
         return Optional.empty();
+    }
+
+    private void checkWritesEnabled()
+    {
+        if (readOnly) {
+            throw new TrinoException(NOT_SUPPORTED, "This catalog is read-only, set aws.read-only=false to enable INSERT, UPDATE and DELETE");
+        }
     }
 
     private ColumnHandle getRowId(AwsTableHandle tableHandle)

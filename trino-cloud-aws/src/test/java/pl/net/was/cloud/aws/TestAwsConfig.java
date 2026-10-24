@@ -43,7 +43,8 @@ final class TestAwsConfig
                 .setRoleSessionName("trino-cloud")
                 .setMaxConnections(50)
                 .setRetryMode(RetryMode.ADAPTIVE)
-                .setMaxErrorRetries(10));
+                .setMaxErrorRetries(10)
+                .setReadOnly(true));
     }
 
     @Test
@@ -60,6 +61,7 @@ final class TestAwsConfig
                 .put("aws.max-connections", "10")
                 .put("aws.retry-mode", "STANDARD")
                 .put("aws.max-error-retries", "3")
+                .put("aws.read-only", "false")
                 .buildOrThrow();
 
         AwsConfig expected = new AwsConfig()
@@ -72,7 +74,8 @@ final class TestAwsConfig
                 .setRoleSessionName("session")
                 .setMaxConnections(10)
                 .setRetryMode(RetryMode.STANDARD)
-                .setMaxErrorRetries(3);
+                .setMaxErrorRetries(3)
+                .setReadOnly(false);
 
         // aws.profile is mutually exclusive with static credentials, so it's mapped in a separate test
         assertFullMapping(properties, expected, ImmutableSet.of("aws.profile"));
@@ -91,6 +94,7 @@ final class TestAwsConfig
                 .put("aws.max-connections", "10")
                 .put("aws.retry-mode", "STANDARD")
                 .put("aws.max-error-retries", "3")
+                .put("aws.read-only", "false")
                 .buildOrThrow();
 
         AwsConfig expected = new AwsConfig()
@@ -102,7 +106,8 @@ final class TestAwsConfig
                 .setRoleSessionName("session")
                 .setMaxConnections(10)
                 .setRetryMode(RetryMode.STANDARD)
-                .setMaxErrorRetries(3);
+                .setMaxErrorRetries(3)
+                .setReadOnly(false);
 
         assertFullMapping(properties, expected, ImmutableSet.of("aws.access-key", "aws.secret-key"));
     }
