@@ -210,6 +210,18 @@ final class TestAwsConnectorEmulator
     }
 
     @Test
+    void testStateName()
+    {
+        assertQuery(
+                "SELECT state_name, state.name FROM aws.ec2.instances WHERE instance_id = '%s'".formatted(testData.instanceIds().getFirst()),
+                "VALUES ('running', 'running')");
+        List<String> columns = computeActual("SHOW COLUMNS FROM aws.ec2.instances").getMaterializedRows().stream()
+                .map(row -> (String) row.getField(0))
+                .toList();
+        assertThat(columns.get(columns.indexOf("state") + 1)).isEqualTo("state_name");
+    }
+
+    @Test
     void testTimestampColumns()
     {
         assertThat(query("SELECT typeof(launch_time), launch_time BETWEEN now() - INTERVAL '1' DAY AND now() FROM aws.ec2.instances WHERE instance_id = '%s'".formatted(testData.instanceIds().getFirst())))
