@@ -546,6 +546,19 @@ final class TestAwsConnectorEmulator
     }
 
     @Test
+    void testLimitPushdown()
+    {
+        String sql = "SELECT key FROM aws.s3.objects WHERE bucket_name = '%s' LIMIT 10".formatted(MANY_OBJECTS_BUCKET);
+        assertThat(computeActual(sql).getRowCount()).isEqualTo(10);
+        // the first response has 1000 keys, but only the rows up to the limit are read
+        assertInputRows(sql, 10);
+        assertInputRows("SELECT vpc_id FROM aws.ec2.vpcs LIMIT 1", 1);
+        // a predicate that's not fully pushed down is applied before the limit
+        assertThat(computeActual("SELECT key FROM aws.s3.objects WHERE bucket_name = '%s' AND key LIKE '%%9' LIMIT 10".formatted(MANY_OBJECTS_BUCKET)).getRowCount()).isEqualTo(10);
+        assertQuery("SELECT count(*) FROM (SELECT key FROM aws.s3.objects WHERE bucket_name = '%s' AND key LIKE '%%9' LIMIT 1000)".formatted(MANY_OBJECTS_BUCKET), "VALUES 110");
+    }
+
+    @Test
     void testSingleColumnOfObjectsSpanningManyPages()
     {
         MaterializedResult keys = computeActual("SELECT key FROM aws.s3.objects WHERE bucket_name = '%s'".formatted(MANY_OBJECTS_BUCKET));
