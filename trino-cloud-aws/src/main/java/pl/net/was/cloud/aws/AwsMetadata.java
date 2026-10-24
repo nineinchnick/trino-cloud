@@ -16,6 +16,7 @@ package pl.net.was.cloud.aws;
 
 import com.google.common.collect.ImmutableList;
 import com.google.inject.Inject;
+import io.airlift.log.Logger;
 import io.airlift.slice.Slice;
 import io.trino.spi.StandardErrorCode;
 import io.trino.spi.TrinoException;
@@ -51,11 +52,14 @@ import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.connector.RowChangeParadigm.CHANGE_ONLY_UPDATED_COLUMNS;
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.joining;
 import static pl.net.was.cloud.aws.AwsErrorCode.AWS_MISSING_PREDICATE;
 
 public class AwsMetadata
         implements ConnectorMetadata
 {
+    private static final Logger log = Logger.get(AwsMetadata.class);
+
     private final AwsTables tables;
     private final boolean readOnly;
 
@@ -174,6 +178,7 @@ public class AwsMetadata
             Collection<Slice> fragments,
             Collection<ComputedStatistics> computedStatistics)
     {
+        logCreatedResources(session, ((AwsInsertTableHandle) insertHandle).tableHandle(), fragments);
         return Optional.empty();
     }
 
@@ -219,7 +224,19 @@ public class AwsMetadata
             Collection<Slice> fragments,
             Collection<ComputedStatistics> computedStatistics)
     {
+        logCreatedResources(session, ((AwsMergeTableHandle) mergeTableHandle).tableHandle(), fragments);
         return Optional.empty();
+    }
+
+    private static void logCreatedResources(ConnectorSession session, AwsTableHandle tableHandle, Collection<Slice> fragments)
+    {
+        if (fragments.isEmpty()) {
+            return;
+        }
+        String resourceIds = fragments.stream()
+                .map(Slice::toStringUtf8)
+                .collect(joining(", "));
+        log.info("Query %s created resources in %s: %s", session.getQueryId(), tableHandle.schemaTableName(), resourceIds);
     }
 
     private void checkWritesEnabled()

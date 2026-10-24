@@ -75,7 +75,15 @@ public class AwsMergeSink
     @Override
     public CompletableFuture<Collection<Slice>> finish()
     {
-        return completedFuture(ImmutableList.of());
+        return insertSink
+                .map(AwsPageSink::finish)
+                .orElseGet(() -> completedFuture(ImmutableList.of()));
+    }
+
+    @Override
+    public void abort()
+    {
+        insertSink.ifPresent(AwsPageSink::abort);
     }
 
     private Supplier<TrinoException> notSupported(String operation)

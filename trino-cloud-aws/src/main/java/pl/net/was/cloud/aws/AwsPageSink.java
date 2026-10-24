@@ -15,7 +15,9 @@ package pl.net.was.cloud.aws;
 
 import com.google.common.base.CaseFormat;
 import com.google.common.collect.ImmutableList;
+import io.airlift.log.Logger;
 import io.airlift.slice.Slice;
+import io.airlift.slice.Slices;
 import io.trino.spi.Page;
 import io.trino.spi.TrinoException;
 import io.trino.spi.block.Block;
@@ -32,10 +34,12 @@ import software.amazon.awssdk.services.ec2.model.Tag;
 import software.amazon.awssdk.services.ec2.model.TagSpecification;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.type.VarcharType.VARCHAR;
@@ -47,12 +51,15 @@ import static pl.net.was.cloud.aws.PageValues.getValue;
 public class AwsPageSink
         implements ConnectorPageSink
 {
+    private static final Logger log = Logger.get(AwsPageSink.class);
+
     private final AwsInsertTableHandle handle;
     private final String tableName;
     private final Inserter inserter;
     private final Map<String, SdkField<?>> fields;
     private final int maxInsertedRows;
     private int insertedRows;
+    private final ImmutableList.Builder<String> createdResourceIds = ImmutableList.builder();
 
     public AwsPageSink(AwsInsertTableHandle handle, AwsTable table, int maxInsertedRows)
     {
@@ -83,11 +90,21 @@ public class AwsPageSink
     @Override
     public CompletableFuture<Collection<Slice>> finish()
     {
-        return completedFuture(ImmutableList.of());
+        return completedFuture(createdResourceIds.build().stream()
+                .map(Slices::utf8Slice)
+                .collect(toImmutableList()));
     }
 
+    // writes aren't transactional, so resources created before the failure are left in place, and are only reported here
     @Override
-    public void abort() {}
+    public void abort()
+    {
+        List<String> resourceIds = createdResourceIds.build();
+        if (resourceIds.isEmpty()) {
+            return;
+        }
+        log.warn("Insert into %s was aborted after creating resources, which were not removed: %s", tableName, String.join(", ", resourceIds));
+    }
 
     void insert(Page page, int position)
     {
@@ -108,7 +125,7 @@ public class AwsPageSink
         insertedRows++;
         AwsRequest.Builder request = setFields(page, position, inserter.requestBuilder().get());
         try {
-            inserter.executor().accept(request.build());
+            createdResourceIds.addAll(inserter.executor().apply(request.build()));
         }
         catch (SdkException e) {
             throw AwsErrors.translate(e);

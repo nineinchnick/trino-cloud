@@ -24,7 +24,6 @@ import software.amazon.awssdk.core.exception.SdkException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -149,7 +148,10 @@ public final class AwsTable
         Iterable<List<?>> rows(AwsTable table, AwsTableHandle handle);
     }
 
-    public record Inserter(Supplier<AwsRequest.Builder> requestBuilder, Consumer<AwsRequest> executor)
+    /**
+     * The executor sends the request and returns the IDs of the resources it created.
+     */
+    public record Inserter(Supplier<AwsRequest.Builder> requestBuilder, Function<AwsRequest, List<String>> executor)
     {
         public Inserter
         {
