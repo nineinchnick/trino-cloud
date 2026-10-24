@@ -17,6 +17,7 @@ package pl.net.was.cloud.aws.filters;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.Map;
+import java.util.Set;
 
 public class ImageFilter
         implements FilterApplier
@@ -28,5 +29,12 @@ public class ImageFilter
                 "image_id", FilterType.EQUAL,
                 "name", FilterType.EQUAL,
                 "owner_id", FilterType.EQUAL);
+    }
+
+    // owners can be given as aliases, like self or amazon, but the owner_id column always holds account IDs
+    @Override
+    public Set<String> getUnenforcedFilters()
+    {
+        return Set.of("owner_id");
     }
 }
