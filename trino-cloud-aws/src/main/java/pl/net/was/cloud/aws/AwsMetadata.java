@@ -90,7 +90,7 @@ public class AwsMetadata
             ConnectorTableHandle connectorTableHandle)
     {
         AwsTableHandle tableHandle = (AwsTableHandle) connectorTableHandle;
-        SchemaTableName schemaTableName = tableHandle.getSchemaTableName();
+        SchemaTableName schemaTableName = tableHandle.schemaTableName();
         return new ConnectorTableMetadata(
                 schemaTableName,
                 tables.require(schemaTableName).columns());
@@ -110,7 +110,7 @@ public class AwsMetadata
             ConnectorSession connectorSession,
             ConnectorTableHandle connectorTableHandle)
     {
-        return tables.require(((AwsTableHandle) connectorTableHandle).getSchemaTableName()).columnHandles();
+        return tables.require(((AwsTableHandle) connectorTableHandle).schemaTableName()).columnHandles();
     }
 
     @Override
@@ -198,8 +198,8 @@ public class AwsMetadata
             throw new TrinoException(NOT_SUPPORTED, "This connector does not support query retries");
         }
         AwsTableHandle awsTableHandle = (AwsTableHandle) tableHandle;
-        if (!tables.require(awsTableHandle.getSchemaTableName()).supportsMerge()) {
-            throw new TrinoException(StandardErrorCode.NOT_SUPPORTED, "Deletes and updates are not supported for %s".formatted(awsTableHandle.getSchemaTableName()));
+        if (!tables.require(awsTableHandle.schemaTableName()).supportsMerge()) {
+            throw new TrinoException(StandardErrorCode.NOT_SUPPORTED, "Deletes and updates are not supported for %s".formatted(awsTableHandle.schemaTableName()));
         }
         return new AwsOutputTableHandle(awsTableHandle, List.of(), List.of());
     }
@@ -217,9 +217,9 @@ public class AwsMetadata
 
     private ColumnHandle getRowId(AwsTableHandle tableHandle)
     {
-        return tables.require(tableHandle.getSchemaTableName())
+        return tables.require(tableHandle.schemaTableName())
                 .rowIdColumn()
-                .orElseThrow(() -> new TrinoException(NOT_SUPPORTED, "Deletes and updates on table %s are not supported".formatted(tableHandle.getSchemaTableName())));
+                .orElseThrow(() -> new TrinoException(NOT_SUPPORTED, "Deletes and updates on table %s are not supported".formatted(tableHandle.schemaTableName())));
     }
 
     @Override
@@ -229,7 +229,7 @@ public class AwsMetadata
             Constraint constraint)
     {
         AwsTableHandle tableHandle = (AwsTableHandle) table;
-        AwsTable awsTable = tables.require(tableHandle.getSchemaTableName());
+        AwsTable awsTable = tables.require(tableHandle.schemaTableName());
         return awsTable.filterApplier().flatMap(filterApplier -> filterApplier.applyFilter(
                 tableHandle,
                 awsTable.columnHandles(),

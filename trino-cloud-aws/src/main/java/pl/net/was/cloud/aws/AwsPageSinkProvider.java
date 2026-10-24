@@ -58,11 +58,11 @@ public class AwsPageSinkProvider
     public ConnectorMergeSink createMergeSink(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorMergeTableHandle tableHandle, Optional<ConnectorTableCredentials> tableCredentials, ConnectorPageSinkId pageSinkId, MemoryContext memoryContext)
     {
         AwsOutputTableHandle handle = (AwsOutputTableHandle) tableHandle;
-        return new AwsMergeSink(handle, tables.require(handle.getTableHandle().getSchemaTableName()));
+        return new AwsMergeSink(handle, tables.require(handle.getTableHandle().schemaTableName()));
     }
 
     private AwsPageSink createPageSink(AwsOutputTableHandle handle)
     {
-        return new AwsPageSink(handle, tables.require(handle.getTableHandle().getSchemaTableName()));
+        return new AwsPageSink(handle, tables.require(handle.getTableHandle().schemaTableName()));
     }
 }
