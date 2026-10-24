@@ -15,6 +15,7 @@ package pl.net.was.cloud.aws;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
 import com.google.inject.Inject;
 import io.airlift.slice.Slices;
 import io.trino.spi.TrinoException;
@@ -26,6 +27,7 @@ import pl.net.was.cloud.aws.filters.BucketFilter;
 import pl.net.was.cloud.aws.filters.FilterApplier;
 import pl.net.was.cloud.aws.filters.ImageFilter;
 import pl.net.was.cloud.aws.filters.InstanceFilter;
+import pl.net.was.cloud.aws.filters.SnapshotFilter;
 import software.amazon.awssdk.core.SdkField;
 import software.amazon.awssdk.core.SdkPojo;
 import software.amazon.awssdk.services.ec2.Ec2Client;
@@ -37,6 +39,7 @@ import software.amazon.awssdk.services.ec2.model.DescribeImagesRequest;
 import software.amazon.awssdk.services.ec2.model.DescribeInstanceTypesRequest;
 import software.amazon.awssdk.services.ec2.model.DescribeInstancesRequest;
 import software.amazon.awssdk.services.ec2.model.DescribePublicIpv4PoolsRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeSnapshotsRequest;
 import software.amazon.awssdk.services.ec2.model.Filter;
 import software.amazon.awssdk.services.ec2.model.Image;
 import software.amazon.awssdk.services.ec2.model.Instance;
@@ -103,6 +106,8 @@ public class AwsTables
 {
     private static final Set<String> MISSING_IMAGE_CODES = ImmutableSet.of("InvalidAMIID.NotFound", "InvalidAMIID.Malformed");
     private static final Set<String> MISSING_INSTANCE_CODES = ImmutableSet.of("InvalidInstanceID.NotFound", "InvalidInstanceID.Malformed");
+    private static final Set<String> MISSING_SNAPSHOT_CODES = ImmutableSet.of("InvalidSnapshot.NotFound", "InvalidSnapshotID.Malformed");
+    private static final String SELF_OWNER = "self";
 
     private final Map<SchemaTableName, AwsTable> tables;
 
@@ -140,7 +145,10 @@ public class AwsTables
                         simpleTable("ec2", "public_ipv4_pools", PublicIpv4Pool.builder().sdkFields(), () -> ec2.describePublicIpv4PoolsPaginator(DescribePublicIpv4PoolsRequest.builder().build()).publicIpv4Pools()),
                         simpleTable("ec2", "regions", Region.builder().sdkFields(), () -> ec2.describeRegions().regions()),
                         simpleTable("ec2", "route_tables", RouteTable.builder().sdkFields(), () -> ec2.describeRouteTablesPaginator().routeTables()),
-                        simpleTable("ec2", "snapshots", Snapshot.builder().sdkFields(), () -> ec2.describeSnapshotsPaginator().snapshots()),
+                        AwsTable.builder(new SchemaTableName("ec2", "snapshots"), columns(Snapshot.builder().sdkFields()))
+                                .rowSource((table, handle) -> snapshots(ec2, table, handle))
+                                .filterApplier(new SnapshotFilter())
+                                .build(),
                         simpleTable("ec2", "security_groups", SecurityGroup.builder().sdkFields(), () -> ec2.describeSecurityGroupsPaginator().securityGroups()),
                         simpleTable("ec2", "subnets", Subnet.builder().sdkFields(), () -> ec2.describeSubnetsPaginator().subnets()),
                         simpleTable("ec2", "tags", TagDescription.builder().sdkFields(), () -> ec2.describeTagsPaginator().tags()),
@@ -210,7 +218,7 @@ public class AwsTables
         FilterApplier filter = table.requireFilterApplier();
         String imageId = (String) filter.getFilter(table.columnHandle("image_id"), handle.constraint());
         String name = (String) filter.getFilter(table.columnHandle("name"), handle.constraint());
-        String owner = (String) filter.getFilter(table.columnHandle("owner_id"), handle.constraint());
+        List<String> owners = filter.getFilterValues(table.columnHandle("owner_id"), handle.constraint());
         DescribeImagesRequest.Builder request = DescribeImagesRequest.builder();
         if (imageId != null) {
             request.imageIds(imageId);
@@ -218,11 +226,9 @@ public class AwsTables
         if (name != null) {
             request.filters(Filter.builder().name("name").values(name).build());
         }
-        if (owner != null) {
-            request.owners(owner);
-        }
-        if (imageId == null && name == null && owner == null && handle.limit().isEmpty()) {
-            throw new TrinoException(AWS_MISSING_PREDICATE, "Missing a limit or constraint for image_id, name, or owner_id");
+        // image IDs alone limit the results, and can refer to public or shared images
+        if (imageId == null || !owners.isEmpty()) {
+            request.owners(ownersOrSelf(owners));
         }
         return encodeRows(
                 emptyOnErrorCodes(ec2.describeImagesPaginator(request.build()).images(), MISSING_IMAGE_CODES),
@@ -231,6 +237,43 @@ public class AwsTables
                         o -> Slices.utf8Slice(((Image) o).imageId()),
                         // populate instance_id - to support INSERT
                         _ -> null));
+    }
+
+    private static Iterable<List<?>> snapshots(Ec2Client ec2, AwsTable table, AwsTableHandle handle)
+    {
+        FilterApplier filter = table.requireFilterApplier();
+        List<String> snapshotIds = filter.getFilterValues(table.columnHandle("snapshot_id"), handle.constraint());
+        List<String> volumeIds = filter.getFilterValues(table.columnHandle("volume_id"), handle.constraint());
+        List<String> owners = filter.getFilterValues(table.columnHandle("owner_id"), handle.constraint());
+        DescribeSnapshotsRequest.Builder request = DescribeSnapshotsRequest.builder();
+        if (!volumeIds.isEmpty()) {
+            request.filters(Filter.builder().name("volume-id").values(volumeIds).build());
+        }
+        if (snapshotIds.isEmpty()) {
+            return describeSnapshots(ec2, request.ownerIds(ownersOrSelf(owners)).build());
+        }
+        if (!owners.isEmpty()) {
+            request.ownerIds(owners);
+        }
+        DescribeSnapshotsRequest baseRequest = request.build();
+        // AWS fails the whole request when any of the snapshot IDs doesn't exist, so describe each snapshot separately
+        return Iterables.concat(Lists.transform(
+                snapshotIds,
+                snapshotId -> describeSnapshots(ec2, baseRequest.toBuilder().snapshotIds(snapshotId).build())));
+    }
+
+    private static Iterable<List<?>> describeSnapshots(Ec2Client ec2, DescribeSnapshotsRequest request)
+    {
+        return encodeRows(emptyOnErrorCodes(ec2.describeSnapshotsPaginator(request).snapshots(), MISSING_SNAPSHOT_CODES), List.of());
+    }
+
+    // without an owner, AWS lists all public images or snapshots, which is slow and rarely useful
+    private static List<String> ownersOrSelf(List<String> owners)
+    {
+        if (owners.isEmpty()) {
+            return List.of(SELF_OWNER);
+        }
+        return owners;
     }
 
     private static Iterable<List<?>> instances(Ec2Client ec2, AwsTable table, AwsTableHandle handle)

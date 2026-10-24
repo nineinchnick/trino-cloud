@@ -41,6 +41,7 @@ final class TestAwsConnectorEmulator
     // so placement_groups, public_ipv4_pools and vpn_connections are only covered by TestAwsQueriesRealAccount
     private static final List<String> EC2_TABLES_WITHOUT_REQUIRED_FILTERS = List.of(
             "availability_zones",
+            "images",
             "instance_types",
             "instances",
             "key_pairs",
@@ -97,7 +98,6 @@ final class TestAwsConnectorEmulator
                     .as(table)
                     .succeeds();
         }
-        assertThat(query("SELECT * FROM aws.ec2.images WHERE owner_id = '%s'".formatted(IMAGE_OWNER_ID))).succeeds();
         assertThat(query("SELECT * FROM aws.s3.buckets")).succeeds();
         assertThat(query("SELECT * FROM aws.s3.objects WHERE bucket_name = '%s'".formatted(OBJECTS_BUCKET))).succeeds();
         assertThat(query("SELECT * FROM aws.s3.object_versions WHERE bucket_name = '%s'".formatted(VERSIONED_BUCKET))).succeeds();
@@ -203,20 +203,32 @@ final class TestAwsConnectorEmulator
     }
 
     @Test
-    void testImagesRequireFilterOrLimit()
+    void testImagesDefaultToOwnImages()
     {
-        assertQueryFails("SELECT * FROM aws.ec2.images", "Missing a limit or constraint for image_id, name, or owner_id");
-        // TODO #16 the limit is never pushed down, so it doesn't help
-        assertQueryFails("SELECT image_id FROM aws.ec2.images LIMIT 1", "Missing a limit or constraint for image_id, name, or owner_id");
+        assertThat(query("SELECT image_id, owner_id FROM aws.ec2.images"))
+                .matches("VALUES (VARCHAR '%s', VARCHAR '%s')".formatted(testData.ownImageId(), testData.accountId()));
+        assertThat(query("SELECT image_id FROM aws.ec2.images LIMIT 1"))
+                .matches("VALUES VARCHAR '%s'".formatted(testData.ownImageId()));
+        assertThat(query("SELECT image_id FROM aws.ec2.images WHERE name LIKE 'trino%'"))
+                .matches("VALUES VARCHAR '%s'".formatted(testData.ownImageId()));
     }
 
-    // isFullyPushedDown() can't be used for tables with required filters, because it also runs the query with pushdown disabled,
-    // but these queries only succeed when the filter is pushed down
+    // isFullyPushedDown() and isNotFullyPushedDown() can't be used for images, because they also run the query with pushdown disabled,
+    // and without a pushed down owner the table only returns your own images
     @Test
     void testImagesByOwner()
     {
         assertThat(query("SELECT image_id FROM aws.ec2.images WHERE owner_id = '%s'".formatted(IMAGE_OWNER_ID)))
                 .matches("VALUES VARCHAR 'ami-0abcdef1234567890', VARCHAR 'ami-0abcdef1234567891', VARCHAR 'ami-amazonlinux2023-arm64'");
+        assertThat(query("SELECT image_id FROM aws.ec2.images WHERE owner_id IN ('%s', '%s')".formatted(IMAGE_OWNER_ID, testData.accountId())))
+                .matches("VALUES VARCHAR 'ami-0abcdef1234567890', VARCHAR 'ami-0abcdef1234567891', VARCHAR 'ami-amazonlinux2023-arm64', VARCHAR '%s'".formatted(testData.ownImageId()));
+    }
+
+    @Test
+    void testImagesByOwnerAlias()
+    {
+        // AWS returns your own images for the self alias, but their owner_id is the account ID, so Trino filters them out
+        assertQueryReturnsEmptyResult("SELECT image_id FROM aws.ec2.images WHERE owner_id = 'self'");
     }
 
     @Test
@@ -224,6 +236,22 @@ final class TestAwsConnectorEmulator
     {
         assertThat(query("SELECT name, owner_id FROM aws.ec2.images WHERE image_id = '%s'".formatted(IMAGE_ID)))
                 .matches("VALUES (VARCHAR 'amzn2-ami-hvm-2.0.20230404.0-x86_64-gp2', VARCHAR '%s')".formatted(IMAGE_OWNER_ID));
+    }
+
+    // Floci doesn't support CreateSnapshot, so these only check that the pushed down filters are accepted
+    @Test
+    void testSnapshotFilters()
+    {
+        assertQueryReturnsEmptyResult("SELECT snapshot_id FROM aws.ec2.snapshots");
+        assertQueryReturnsEmptyResult("SELECT snapshot_id FROM aws.ec2.snapshots WHERE owner_id IN ('%s', '%s')".formatted(IMAGE_OWNER_ID, testData.accountId()));
+        assertQueryReturnsEmptyResult("SELECT snapshot_id FROM aws.ec2.snapshots WHERE volume_id IN ('vol-0123456789abcdef0', 'vol-0123456789abcdef1')");
+    }
+
+    @Test
+    void testMissingSnapshotId()
+    {
+        assertQueryReturnsEmptyResult("SELECT snapshot_id FROM aws.ec2.snapshots WHERE snapshot_id = 'snap-0123456789abcdef0'");
+        assertQueryReturnsEmptyResult("SELECT snapshot_id FROM aws.ec2.snapshots WHERE snapshot_id IN ('snap-0123456789abcdef0', 'not-a-snapshot-id')");
     }
 
     @Test

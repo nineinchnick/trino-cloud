@@ -21,6 +21,8 @@ import io.trino.testing.containers.Floci;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.Ec2ClientBuilder;
+import software.amazon.awssdk.services.ec2.model.ArchitectureValues;
+import software.amazon.awssdk.services.ec2.model.Image;
 import software.amazon.awssdk.services.ec2.model.Instance;
 import software.amazon.awssdk.services.ec2.model.InstanceType;
 import software.amazon.awssdk.services.ec2.model.ResourceType;
@@ -57,13 +59,15 @@ final class EmulatorTestData
     private final String subnetId;
     private final String securityGroupId;
     private final List<String> instanceIds;
+    private final Image ownImage;
 
-    private EmulatorTestData(String vpcId, String subnetId, String securityGroupId, List<String> instanceIds)
+    private EmulatorTestData(String vpcId, String subnetId, String securityGroupId, List<String> instanceIds, Image ownImage)
     {
         this.vpcId = vpcId;
         this.subnetId = subnetId;
         this.securityGroupId = securityGroupId;
         this.instanceIds = ImmutableList.copyOf(instanceIds);
+        this.ownImage = ownImage;
     }
 
     static EmulatorTestData create(Floci emulator)
@@ -96,6 +100,16 @@ final class EmulatorTestData
     List<String> instanceIds()
     {
         return instanceIds;
+    }
+
+    String ownImageId()
+    {
+        return ownImage.imageId();
+    }
+
+    String accountId()
+    {
+        return ownImage.ownerId();
     }
 
     private static EmulatorTestData createEc2Resources(Ec2Client ec2)
@@ -138,7 +152,14 @@ final class EmulatorTestData
                 .stream()
                 .map(Instance::instanceId)
                 .toList();
-        return new EmulatorTestData(vpcId, subnetId, securityGroupId, instanceIds);
+        // Floci can't create an image from an instance, because its instances have no running containers
+        String ownImageId = ec2.registerImage(request -> request
+                        .name(NAME)
+                        .rootDeviceName("/dev/xvda")
+                        .architecture(ArchitectureValues.X86_64))
+                .imageId();
+        Image ownImage = ec2.describeImages(request -> request.imageIds(ownImageId)).images().getFirst();
+        return new EmulatorTestData(vpcId, subnetId, securityGroupId, instanceIds, ownImage);
     }
 
     private static TagSpecification nameTag(ResourceType resourceType)
