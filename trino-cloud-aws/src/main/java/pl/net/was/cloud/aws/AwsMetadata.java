@@ -84,10 +84,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.UnaryOperator;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.StandardErrorCode.TABLE_NOT_FOUND;
 import static io.trino.spi.connector.RowChangeParadigm.CHANGE_ONLY_UPDATED_COLUMNS;
@@ -99,9 +99,6 @@ import static io.trino.spi.type.RealType.REAL;
 import static io.trino.spi.type.SmallintType.SMALLINT;
 import static io.trino.spi.type.TimestampType.TIMESTAMP_SECONDS;
 import static io.trino.spi.type.VarcharType.VARCHAR;
-import static java.lang.String.format;
-import static java.util.stream.Collectors.toList;
-import static java.util.stream.Collectors.toMap;
 
 public class AwsMetadata
         implements ConnectorMetadata
@@ -195,17 +192,17 @@ public class AwsMetadata
                         e.getKey().toString(),
                         e.getValue()
                                 .stream()
-                                .collect(Collectors.toMap(
+                                .collect(toImmutableMap(
                                         ColumnMetadata::getName,
                                         c -> (ColumnHandle) new AwsColumnHandle(c.getName(), c.getType())))))
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+                .collect(toImmutableMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
     private List<ColumnMetadata> fieldsToColumns(List<ColumnMetadata> extraColumns, List<SdkField<?>> sdkFields)
     {
         return Stream.of(extraColumns, fieldsToColumns(sdkFields))
                 .flatMap(Collection::stream)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     private List<ColumnMetadata> fieldsToColumns(List<SdkField<?>> sdkFields)
@@ -228,7 +225,7 @@ public class AwsMetadata
                     String name = CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, f.memberName());
                     return new ColumnMetadata(name, trinoType);
                 })
-                .collect(toList());
+                .toList();
     }
 
     @Override
@@ -290,7 +287,7 @@ public class AwsMetadata
             ConnectorTableHandle connectorTableHandle)
     {
         return getTableMetadata(connectorSession, connectorTableHandle).getColumns().stream()
-                .collect(toMap(ColumnMetadata::getName, column -> new AwsColumnHandle(column.getName(), column.getType())));
+                .collect(toImmutableMap(ColumnMetadata::getName, column -> new AwsColumnHandle(column.getName(), column.getType())));
     }
 
     @Override
@@ -312,7 +309,7 @@ public class AwsMetadata
         Map<SchemaTableName, RelationColumnsMetadata> relationColumns = columns.entrySet()
                 .stream()
                 .filter(entry -> schemaName.isEmpty() || entry.getKey().getSchemaName().equals(schemaName.get()))
-                .collect(toMap(Map.Entry::getKey, entry -> RelationColumnsMetadata.forTable(entry.getKey(), entry.getValue())));
+                .collect(toImmutableMap(Map.Entry::getKey, entry -> RelationColumnsMetadata.forTable(entry.getKey(), entry.getValue())));
         return relationFilter.apply(relationColumns.keySet())
                 .stream()
                 .map(relationColumns::get)
@@ -379,7 +376,7 @@ public class AwsMetadata
         }
         AwsTableHandle awsTableHandle = (AwsTableHandle) tableHandle;
         if (!primaryKeys.containsKey(awsTableHandle.getSchemaTableName())) {
-            throw new TrinoException(StandardErrorCode.NOT_SUPPORTED, format("Deletes and updates are not supported for %s", awsTableHandle.getSchemaTableName()));
+            throw new TrinoException(StandardErrorCode.NOT_SUPPORTED, "Deletes and updates are not supported for %s".formatted(awsTableHandle.getSchemaTableName()));
         }
         return new AwsOutputTableHandle(awsTableHandle, List.of(), List.of());
     }
@@ -397,7 +394,7 @@ public class AwsMetadata
     {
         ColumnHandle rowId = getRowIdHandle(tableHandle.getSchemaTableName());
         if (rowId == null) {
-            throw new TrinoException(NOT_SUPPORTED, format("Deletes and updates on table %s are not supported", tableHandle.getSchemaTableName().toString()));
+            throw new TrinoException(NOT_SUPPORTED, "Deletes and updates on table %s are not supported".formatted(tableHandle.getSchemaTableName().toString()));
         }
         return rowId;
     }

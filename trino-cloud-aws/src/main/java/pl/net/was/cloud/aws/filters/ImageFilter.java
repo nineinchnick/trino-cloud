@@ -21,6 +21,7 @@ import java.util.Map;
 public class ImageFilter
         implements FilterApplier
 {
+    @Override
     public Map<String, FilterType> getSupportedFilters()
     {
         return ImmutableMap.of(

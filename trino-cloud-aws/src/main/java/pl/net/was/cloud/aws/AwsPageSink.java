@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package pl.net.was.cloud.aws;
 
 import com.google.common.base.CaseFormat;
@@ -40,11 +41,10 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.BiConsumer;
-import java.util.stream.Collectors;
 
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.trino.spi.StandardErrorCode.INVALID_COLUMN_REFERENCE;
 import static io.trino.spi.type.VarcharType.VARCHAR;
-import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.CompletableFuture.completedFuture;
 
@@ -68,7 +68,7 @@ public class AwsPageSink
                 .map(f -> Map.entry(
                         CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, f.memberName()),
                         f))
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+                .collect(toImmutableMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
     public AwsPageSink(AwsOutputTableHandle table, Ec2Client ec2, S3Client s3)
@@ -119,7 +119,7 @@ public class AwsPageSink
                 field = fields.get(tableName).get("tag_specifications");
             }
             if (field == null) {
-                throw new TrinoException(INVALID_COLUMN_REFERENCE, format("Inserts to %s with %s are not supported", tableName, columnName));
+                throw new TrinoException(INVALID_COLUMN_REFERENCE, "Inserts to %s with %s are not supported".formatted(tableName, columnName));
             }
 
             VARCHAR.getSlice(block, position).toStringUtf8();
