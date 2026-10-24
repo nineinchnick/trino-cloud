@@ -14,10 +14,13 @@
 package pl.net.was.cloud.aws;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import io.trino.spi.block.Block;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.SchemaTableName;
+import io.trino.spi.type.Type;
 import pl.net.was.cloud.aws.filters.FilterApplier;
 import software.amazon.awssdk.awscore.AwsRequest;
 import software.amazon.awssdk.core.exception.SdkException;
@@ -65,6 +68,7 @@ public final class AwsTable
         checkArgument((updater.isEmpty() && deleter.isEmpty()) || columnHandles.containsKey(ROW_ID), "%s supports updates or deletes, so it must have a %s column", name, ROW_ID);
         checkArgument((updater.isEmpty() && deleter.isEmpty()) || primaryKey.isPresent(), "%s supports updates or deletes, so it must have a primary key", name);
         primaryKey.ifPresent(column -> checkArgument(columnHandles.containsKey(column), "Primary key column %s does not exist in %s", column, name));
+        inserter.ifPresent(value -> value.columnSetters().keySet().forEach(column -> checkArgument(columnHandles.containsKey(column), "Inserted column %s does not exist in %s", column, name)));
         updater.ifPresent(value -> value.columns().forEach(column -> checkArgument(columnHandles.containsKey(column), "Updated column %s does not exist in %s", column, name)));
     }
 
@@ -154,14 +158,30 @@ public final class AwsTable
 
     /**
      * The executor sends the request and returns the IDs of the resources it created.
+     * Columns are set in the request fields with the same name, unless they have a column setter.
      */
-    public record Inserter(Supplier<AwsRequest.Builder> requestBuilder, Function<AwsRequest, List<String>> executor)
+    public record Inserter(Supplier<AwsRequest.Builder> requestBuilder, Function<AwsRequest, List<String>> executor, Map<String, ColumnSetter> columnSetters)
     {
         public Inserter
         {
             requireNonNull(requestBuilder, "requestBuilder is null");
             requireNonNull(executor, "executor is null");
+            columnSetters = ImmutableMap.copyOf(requireNonNull(columnSetters, "columnSetters is null"));
         }
+
+        public Inserter(Supplier<AwsRequest.Builder> requestBuilder, Function<AwsRequest, List<String>> executor)
+        {
+            this(requestBuilder, executor, ImmutableMap.of());
+        }
+    }
+
+    /**
+     * Sets a column value that's not NULL in a request, for columns that don't map directly to a request field.
+     */
+    @FunctionalInterface
+    public interface ColumnSetter
+    {
+        void set(AwsRequest.Builder request, Type type, Block block, int position);
     }
 
     /**

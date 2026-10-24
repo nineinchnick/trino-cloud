@@ -14,7 +14,6 @@
 package pl.net.was.cloud.aws;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.CaseFormat;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hashing;
 import io.airlift.log.Logger;
@@ -23,17 +22,14 @@ import io.airlift.slice.Slices;
 import io.trino.spi.Page;
 import io.trino.spi.TrinoException;
 import io.trino.spi.block.Block;
-import io.trino.spi.block.SqlMap;
 import io.trino.spi.connector.ConnectorPageSink;
-import io.trino.spi.type.MapType;
-import io.trino.spi.type.TypeOperators;
+import io.trino.spi.type.Type;
+import pl.net.was.cloud.aws.AwsTable.ColumnSetter;
 import pl.net.was.cloud.aws.AwsTable.Inserter;
 import software.amazon.awssdk.awscore.AwsRequest;
 import software.amazon.awssdk.core.SdkField;
 import software.amazon.awssdk.core.SdkPojo;
 import software.amazon.awssdk.core.exception.SdkException;
-import software.amazon.awssdk.services.ec2.model.Tag;
-import software.amazon.awssdk.services.ec2.model.TagSpecification;
 
 import java.util.Collection;
 import java.util.List;
@@ -44,12 +40,12 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
-import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.CompletableFuture.completedFuture;
+import static java.util.function.Function.identity;
 import static pl.net.was.cloud.aws.AwsErrorCode.AWS_TOO_MANY_INSERTED_ROWS;
-import static pl.net.was.cloud.aws.PageValues.getValue;
+import static pl.net.was.cloud.aws.SdkValueConverter.toSdkValue;
 
 public class AwsPageSink
         implements ConnectorPageSink
@@ -78,8 +74,8 @@ public class AwsPageSink
                 .sdkFields()
                 .stream()
                 .collect(toImmutableMap(
-                        (SdkField<?> field) -> CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, field.memberName()),
-                        (SdkField<?> field) -> field));
+                        SdkColumns::columnName,
+                        identity()));
     }
 
     @Override
@@ -165,31 +161,17 @@ public class AwsPageSink
             }
 
             String columnName = handle.columnNames().get(channel);
-            SdkField<?> field = fields.get(columnName);
-            if (field == null && columnName.equals("tags")) {
-                field = fields.get("tag_specifications");
+            Type type = handle.columnTypes().get(channel);
+            ColumnSetter columnSetter = inserter.columnSetters().get(columnName);
+            if (columnSetter != null) {
+                columnSetter.set(request, type, block, position);
+                continue;
             }
+            SdkField<?> field = fields.get(columnName);
             if (field == null) {
                 throw new TrinoException(NOT_SUPPORTED, "Inserts to %s with %s are not supported".formatted(tableName, columnName));
             }
-
-            VARCHAR.getSlice(block, position).toStringUtf8();
-            Object value = getValue(handle.columnTypes().get(channel), position, block);
-            if (columnName.equals("tags")) {
-                ImmutableList.Builder<Tag> tags = ImmutableList.builder();
-                Block array = (Block) value;
-                MapType tagType = new MapType(VARCHAR, VARCHAR, new TypeOperators());
-                for (int i = 0; i < array.getPositionCount(); i++) {
-                    SqlMap map = (SqlMap) getValue(tagType, i, array);
-                    tags.add(Tag
-                            .builder()
-                            .key((String) getValue(VARCHAR, 0, map.getRawKeyBlock()))
-                            .value((String) getValue(VARCHAR, 1, map.getRawValueBlock()))
-                            .build());
-                }
-                value = TagSpecification.builder().tags(tags.build()).build();
-            }
-            field.set(request, value);
+            field.set(request, toSdkValue(field, type, block, position));
         }
         return request;
     }

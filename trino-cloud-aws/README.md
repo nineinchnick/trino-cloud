@@ -130,13 +130,23 @@ When launching instances, the connector sets a client token derived from the que
 so if a request is sent again for the same row, it doesn't launch another instance.
 
 The following tables support inserting into:
-* `ec2.images`
-* `ec2.instances`
+* `ec2.images`, which creates an image from the instance set in the `instance_id` column
+* `ec2.instances`, which launches an instance
+* `s3.buckets`, which creates a bucket
 
-Only `VARCHAR` columns can be set for now, see [#285](https://github.com/nineinchnick/trino-cloud/issues/285).
+Columns are set in the fields of the AWS API request with the same name, so only some columns can be inserted,
+and inserting a column that doesn't have a matching request field fails.
+The values are converted back to the types of the request fields, so rows are set as nested objects.
+The `tags` column sets the tags of the created instance or image.
 For example:
 ```sql
-INSERT INTO ec2.instances (image_id, instance_type, key_name) VALUES ('ami-05f7491af5eef733a', 't2.micro', 'default');
+INSERT INTO ec2.instances (image_id, instance_type, key_name, ebs_optimized, tags)
+VALUES ('ami-05f7491af5eef733a', 't2.micro', 'default', false, MAP(ARRAY['Name'], ARRAY['web']));
+```
+
+When inserting into `s3.buckets`, the bucket is created in the region of the catalog, unless the `bucket_region` column is set:
+```sql
+INSERT INTO s3.buckets (name, bucket_region) VALUES ('my-bucket', 'eu-central-1');
 ```
 
 The `ec2.instances` table also has limited `UPDATE` and `DELETE` support.
@@ -347,8 +357,9 @@ To add a new table that can be read from:
 ## INSERT support
 
 Set an `inserter` on the table definition, with a supplier of the AWS SDK request builder and a function that executes the request.
-Table columns are mapped to the request fields with the same name.
+Table columns are mapped to the request fields with the same name, and their values are converted to the types of the request fields.
 Inserting a column that doesn't have a matching field in the request fails.
+For columns that map to request fields with a different name or type, like `tags`, add a column setter to the inserter.
 
 > Note: if the corresponding API method requires values for fields that don't map to any column,
 > add extra columns, and populate them with nulls in the row source.
