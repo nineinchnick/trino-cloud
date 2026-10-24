@@ -51,6 +51,7 @@ import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.connector.RowChangeParadigm.CHANGE_ONLY_UPDATED_COLUMNS;
 import static java.util.Objects.requireNonNull;
+import static pl.net.was.cloud.aws.AwsErrorCode.AWS_MISSING_PREDICATE;
 
 public class AwsMetadata
         implements ConnectorMetadata
@@ -202,9 +203,11 @@ public class AwsMetadata
             throw new TrinoException(NOT_SUPPORTED, "This connector does not support query retries");
         }
         AwsTableHandle awsTableHandle = (AwsTableHandle) tableHandle;
-        if (!tables.require(awsTableHandle.schemaTableName()).supportsMerge()) {
+        AwsTable table = tables.require(awsTableHandle.schemaTableName());
+        if (!table.supportsMerge()) {
             throw new TrinoException(StandardErrorCode.NOT_SUPPORTED, "Deletes and updates are not supported for %s".formatted(awsTableHandle.schemaTableName()));
         }
+        checkPrimaryKeyFilter(table, awsTableHandle);
         return new AwsMergeTableHandle(awsTableHandle, new AwsInsertTableHandle(awsTableHandle, List.of(), List.of()));
     }
 
@@ -223,6 +226,19 @@ public class AwsMetadata
     {
         if (readOnly) {
             throw new TrinoException(NOT_SUPPORTED, "This catalog is read-only, set aws.read-only=false to enable INSERT, UPDATE and DELETE");
+        }
+    }
+
+    // without a filter on the primary key, a single statement could change or remove every resource the IAM identity can see
+    private static void checkPrimaryKeyFilter(AwsTable table, AwsTableHandle tableHandle)
+    {
+        AwsColumnHandle primaryKey = table.primaryKeyColumn().orElseThrow();
+        boolean hasFilter = tableHandle.constraint().getDomains()
+                .map(domains -> domains.containsKey(primaryKey))
+                // a constraint that matches no rows can't change anything
+                .orElse(true);
+        if (!hasFilter) {
+            throw new TrinoException(AWS_MISSING_PREDICATE, "Deletes and updates on %1$s require a filter on %2$s, like WHERE %2$s = '...'".formatted(table.name(), primaryKey.name()));
         }
     }
 
