@@ -81,7 +81,7 @@ final class SdkRowEncoder
         }
         if (sdkType == MarshallingType.INSTANT) {
             if (o == null) {
-                return 0;
+                return null;
             }
             return ((Instant) o).getEpochSecond() * MICROSECONDS_PER_SECOND;
         }
