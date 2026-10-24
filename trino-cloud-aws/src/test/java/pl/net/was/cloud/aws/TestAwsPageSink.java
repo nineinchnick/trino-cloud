@@ -41,7 +41,7 @@ final class TestAwsPageSink
     @Test
     void testReturnsCreatedResourceIds()
     {
-        AwsPageSink sink = new AwsPageSink(HANDLE, table(), 10);
+        AwsPageSink sink = new AwsPageSink(HANDLE, table(), new AwsPageSink.Settings("query/1", 10));
 
         sink.appendPage(imageIdsPage("ami-1", "ami-2")).join();
         sink.appendPage(imageIdsPage("ami-3")).join();
@@ -57,7 +57,7 @@ final class TestAwsPageSink
     @Test
     void testMaxInsertedRows()
     {
-        AwsPageSink sink = new AwsPageSink(HANDLE, table(), 2);
+        AwsPageSink sink = new AwsPageSink(HANDLE, table(), new AwsPageSink.Settings("query/1", 2));
 
         sink.appendPage(imageIdsPage("ami-1")).join();
         assertThatThrownBy(() -> sink.appendPage(imageIdsPage("ami-2", "ami-3")))
@@ -67,6 +67,45 @@ final class TestAwsPageSink
         assertThat(requests)
                 .extracting(RunInstancesRequest::imageId)
                 .containsExactly("ami-1");
+    }
+
+    @Test
+    void testSetsDeterministicClientTokens()
+    {
+        AwsPageSink sink = new AwsPageSink(HANDLE, table(), new AwsPageSink.Settings("query/1", 10));
+        sink.appendPage(imageIdsPage("ami-1", "ami-2")).join();
+
+        AwsPageSink retriedSink = new AwsPageSink(HANDLE, table(), new AwsPageSink.Settings("query/1", 10));
+        retriedSink.appendPage(imageIdsPage("ami-1")).join();
+
+        AwsPageSink otherSink = new AwsPageSink(HANDLE, table(), new AwsPageSink.Settings("query/2", 10));
+        otherSink.appendPage(imageIdsPage("ami-1")).join();
+
+        assertThat(requests)
+                .extracting(RunInstancesRequest::clientToken)
+                .containsExactly(
+                        AwsPageSink.clientToken("query/1", 0),
+                        AwsPageSink.clientToken("query/1", 1),
+                        AwsPageSink.clientToken("query/1", 0),
+                        AwsPageSink.clientToken("query/2", 0));
+        assertThat(AwsPageSink.clientToken("query/1", 0))
+                .hasSize(64)
+                .isNotEqualTo(AwsPageSink.clientToken("query/1", 1))
+                .isNotEqualTo(AwsPageSink.clientToken("query/2", 0));
+    }
+
+    @Test
+    void testInsertedClientTokenTakesPrecedence()
+    {
+        AwsInsertTableHandle handle = new AwsInsertTableHandle(new AwsTableHandle(TABLE_NAME), List.of("image_id", "client_token"), List.of(VARCHAR, VARCHAR));
+        AwsPageSink sink = new AwsPageSink(handle, table(), new AwsPageSink.Settings("query/1", 10));
+        BlockBuilder clientTokens = VARCHAR.createBlockBuilder(null, 1);
+        VARCHAR.writeString(clientTokens, "my-token");
+        sink.appendPage(new Page(imageIdsPage("ami-1").getBlock(0), clientTokens.build())).join();
+
+        assertThat(requests)
+                .extracting(RunInstancesRequest::clientToken)
+                .containsExactly("my-token");
     }
 
     private AwsTable table()
