@@ -120,7 +120,7 @@ public class AwsMetadata
             ColumnHandle columnHandle)
     {
         AwsColumnHandle restColumnHandle = (AwsColumnHandle) columnHandle;
-        return new ColumnMetadata(restColumnHandle.getName(), restColumnHandle.getType());
+        return new ColumnMetadata(restColumnHandle.name(), restColumnHandle.type());
     }
 
     @Override
@@ -156,8 +156,8 @@ public class AwsMetadata
         ImmutableList.Builder<String> columnNames = ImmutableList.builder();
         ImmutableList.Builder<Type> columnTypes = ImmutableList.builder();
         for (AwsColumnHandle column : columnHandles) {
-            columnNames.add(column.getName());
-            columnTypes.add(column.getType());
+            columnNames.add(column.name());
+            columnTypes.add(column.type());
         }
         return new AwsOutputTableHandle(awsTableHandle, columnNames.build(), columnTypes.build());
     }

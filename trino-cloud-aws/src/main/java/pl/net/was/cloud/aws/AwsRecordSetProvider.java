@@ -61,18 +61,18 @@ public class AwsRecordSetProvider
                 .map(column -> {
                     int index = 0;
                     for (ColumnMetadata columnMetadata : awsTable.columns()) {
-                        if (columnMetadata.getName().equalsIgnoreCase(column.getName())) {
+                        if (columnMetadata.getName().equalsIgnoreCase(column.name())) {
                             return index;
                         }
                         index++;
                     }
-                    throw new IllegalStateException("Unknown column: " + column.getName());
+                    throw new IllegalStateException("Unknown column: " + column.name());
                 })
                 .toList();
 
         List<Type> mappedTypes = restColumnHandles
                 .stream()
-                .map(AwsColumnHandle::getType)
+                .map(AwsColumnHandle::type)
                 .toList();
 
         //noinspection StaticPseudoFunctionalStyleMethod
