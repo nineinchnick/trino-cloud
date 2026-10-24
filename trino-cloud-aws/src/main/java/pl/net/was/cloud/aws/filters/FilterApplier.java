@@ -39,6 +39,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -90,8 +91,9 @@ public interface FilterApplier
     /**
      * All values of varchar columns with a split batch size, for columns that choose where rows are read from, not which rows are returned.
      * Scans are divided into splits by these values even without a filter on the column, and filter values that are not known match no rows.
+     * The values are only listed when splits are created, because listing them can require an AWS request.
      */
-    default Map<String, List<String>> getKnownValues()
+    default Map<String, Supplier<List<String>>> getKnownValues()
     {
         return Map.of();
     }

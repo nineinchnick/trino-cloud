@@ -67,7 +67,7 @@ final class TestAwsTables
                 assertThat(table.requireFilterApplier().getSupportedFilters()).as(table.name().toString()).containsKey("region");
                 assertThat(table.requireFilterApplier().getUnenforcedFilters()).as(table.name().toString()).doesNotContain("region");
                 assertThat(table.requireFilterApplier().getSplitBatchSizes()).as(table.name().toString()).containsEntry("region", 1);
-                assertThat(table.requireFilterApplier().getKnownValues()).as(table.name().toString()).containsEntry("region", List.of("us-east-1"));
+                assertThat(table.requireFilterApplier().getKnownValues().get("region").get()).as(table.name().toString()).containsExactly("us-east-1");
             }
         }
     }

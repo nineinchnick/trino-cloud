@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -80,7 +81,7 @@ public class AwsSplitManager
             return ImmutableList.of(AwsConnectorSplit.WHOLE_TABLE);
         }
         Map<ColumnHandle, Domain> domains = constraint.getDomains().get();
-        Map<String, List<String>> knownValues = filterApplier.getKnownValues();
+        Map<String, Supplier<List<String>>> knownValues = filterApplier.getKnownValues();
         List<List<TupleDomain<ColumnHandle>>> columnBatches = filterApplier.getSplitBatchSizes().entrySet().stream()
                 .map(batchSize -> columnBatches(
                         table.columnHandle(batchSize.getKey()),
@@ -94,10 +95,10 @@ public class AwsSplitManager
     }
 
     // a column that doesn't divide the scan has a single batch without a constraint
-    private static List<TupleDomain<ColumnHandle>> columnBatches(AwsColumnHandle column, int batchSize, Optional<Domain> filteredDomain, Optional<List<String>> knownValues)
+    private static List<TupleDomain<ColumnHandle>> columnBatches(AwsColumnHandle column, int batchSize, Optional<Domain> filteredDomain, Optional<Supplier<List<String>>> knownValues)
     {
         Optional<Domain> domain = knownValues
-                .map(values -> knownDomain(column, values))
+                .map(values -> knownDomain(column, values.get()))
                 .map(knownDomain -> filteredDomain.map(knownDomain::intersect).orElse(knownDomain))
                 .or(() -> filteredDomain);
         if (domain.isPresent() && domain.get().isNone()) {

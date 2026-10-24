@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
@@ -66,7 +67,7 @@ public class CombinedFilter
     }
 
     @Override
-    public Map<String, List<String>> getKnownValues()
+    public Map<String, Supplier<List<String>>> getKnownValues()
     {
         return combineMaps(FilterApplier::getKnownValues);
     }
