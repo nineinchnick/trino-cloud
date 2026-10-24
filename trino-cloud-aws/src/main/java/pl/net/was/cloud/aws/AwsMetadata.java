@@ -213,7 +213,15 @@ public class AwsMetadata
             throw new TrinoException(StandardErrorCode.NOT_SUPPORTED, "Deletes and updates are not supported for %s".formatted(awsTableHandle.schemaTableName()));
         }
         checkPrimaryKeyFilter(table, awsTableHandle);
-        return new AwsMergeTableHandle(awsTableHandle, new AwsInsertTableHandle(awsTableHandle, List.of(), List.of()));
+        // the merge page has a channel for every column that's not hidden, in the same order as in the table metadata
+        List<ColumnMetadata> dataColumns = table.columns().stream()
+                .filter(column -> !column.isHidden())
+                .collect(toImmutableList());
+        AwsInsertTableHandle insertHandle = new AwsInsertTableHandle(
+                awsTableHandle,
+                dataColumns.stream().map(ColumnMetadata::getName).collect(toImmutableList()),
+                dataColumns.stream().map(ColumnMetadata::getType).collect(toImmutableList()));
+        return new AwsMergeTableHandle(awsTableHandle, insertHandle);
     }
 
     @Override

@@ -20,10 +20,12 @@ import io.trino.testing.containers.Floci;
 import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.Ec2ClientBuilder;
+import software.amazon.awssdk.services.ec2.model.InstanceType;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static io.trino.testing.containers.Floci.FLOCI_REGION;
+import static org.assertj.core.api.Assertions.assertThat;
 import static pl.net.was.cloud.aws.EmulatorTestData.IMAGE_ID;
 import static pl.net.was.cloud.aws.EmulatorTestData.IMAGE_OWNER_ID;
 import static pl.net.was.cloud.aws.EmulatorTestData.INSTANCE_TYPE;
@@ -78,6 +80,19 @@ final class TestAwsConnectorEmulatorWrites
     }
 
     @Test
+    void testDeleteInstance()
+    {
+        String subnetId = createSubnet();
+        String instanceId = runInstance(subnetId);
+        String otherInstanceId = runInstance(subnetId);
+
+        assertUpdate("DELETE FROM aws.ec2.instances WHERE instance_id = '%s'".formatted(instanceId), 1);
+
+        assertThat(instanceState(instanceId)).isIn("shutting-down", "terminated");
+        assertThat(instanceState(otherInstanceId)).isEqualTo("running");
+    }
+
+    @Test
     void testUpdateAndDeleteRequirePrimaryKeyFilter()
     {
         String subnetFilter = "subnet_id = '%s'".formatted(testData.subnetId());
@@ -92,6 +107,24 @@ final class TestAwsConnectorEmulatorWrites
 
         assertQuery("SELECT count(*) FROM aws.ec2.instances WHERE %s AND state['Name'] = 'running'".formatted(subnetFilter), "VALUES 2");
         assertQuery("SELECT count(*) FROM aws.ec2.images WHERE image_id = '%s'".formatted(IMAGE_ID), "VALUES 1");
+    }
+
+    private String runInstance(String subnetId)
+    {
+        return ec2.runInstances(request -> request
+                        .imageId(IMAGE_ID)
+                        .instanceType(InstanceType.fromValue(INSTANCE_TYPE))
+                        .minCount(1)
+                        .maxCount(1)
+                        .subnetId(subnetId))
+                .instances()
+                .getFirst()
+                .instanceId();
+    }
+
+    private String instanceState(String instanceId)
+    {
+        return (String) computeScalar("SELECT state['Name'] FROM aws.ec2.instances WHERE instance_id = '%s'".formatted(instanceId));
     }
 
     private String createSubnet()
