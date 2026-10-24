@@ -32,6 +32,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
+import static pl.net.was.cloud.aws.SdkIterables.translateErrors;
 
 public final class AwsTable
 {
@@ -95,7 +96,7 @@ public final class AwsTable
     public Iterable<List<?>> rows(AwsTableHandle table)
     {
         try {
-            return rowSource.rows(this, table);
+            return translateErrors(rowSource.rows(this, table));
         }
         catch (SdkException e) {
             throw AwsErrors.translate(e);
