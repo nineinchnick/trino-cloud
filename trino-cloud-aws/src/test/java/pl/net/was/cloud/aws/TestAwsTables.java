@@ -14,16 +14,23 @@
 package pl.net.was.cloud.aws;
 
 import io.opentelemetry.api.OpenTelemetry;
+import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
+import io.trino.spi.connector.Constraint;
 import io.trino.spi.connector.SchemaTableName;
+import io.trino.spi.predicate.Domain;
+import io.trino.spi.predicate.TupleDomain;
 import org.junit.jupiter.api.Test;
 import pl.net.was.cloud.aws.AwsTables.RegionalRowId;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 
 import java.util.List;
+import java.util.Map;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static io.airlift.slice.Slices.utf8Slice;
+import static io.trino.spi.type.VarcharType.VARCHAR;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -64,10 +71,16 @@ final class TestAwsTables
                     continue;
                 }
                 assertThat(columnNames).as(table.name().toString()).contains("region");
-                assertThat(table.requireFilterApplier().getSupportedFilters()).as(table.name().toString()).containsKey("region");
-                assertThat(table.requireFilterApplier().getUnenforcedFilters()).as(table.name().toString()).doesNotContain("region");
-                assertThat(table.requireFilterApplier().getSplitBatchSizes()).as(table.name().toString()).containsEntry("region", 1);
-                assertThat(table.requireFilterApplier().getKnownValues().get("region").get()).as(table.name().toString()).containsExactly("us-east-1");
+                AwsColumnHandle region = table.columnHandle("region");
+                Domain defaultRegion = Domain.singleValue(VARCHAR, utf8Slice("us-east-1"));
+                assertThat(table.filters().splitConstraints(TupleDomain.all()))
+                        .as(table.name().toString())
+                        .extracting(split -> split.getDomains().orElseThrow().get(region))
+                        .containsExactly(defaultRegion);
+                TupleDomain<ColumnHandle> regionFilter = TupleDomain.withColumnDomains(Map.of(region, defaultRegion));
+                assertThat(table.filters().applyFilter(new AwsTableHandle(table.name()), new Constraint(regionFilter)))
+                        .as(table.name().toString())
+                        .hasValueSatisfying(result -> assertThat(result.getRemainingFilter().isAll()).isTrue());
             }
         }
     }

@@ -68,25 +68,28 @@ public final class AwsErrors
         return translate(exception, "AWS request in region " + region);
     }
 
+    /**
+     * The request name describes the failed request in the error message.
+     */
+    public static TrinoException translate(SdkException exception, String requestName)
+    {
+        if (!(exception instanceof AwsServiceException serviceException) || serviceException.awsErrorDetails() == null) {
+            return new TrinoException(AWS_API_ERROR, "%s failed: %s".formatted(requestName, exception.getMessage()), exception);
+        }
+        AwsErrorDetails details = serviceException.awsErrorDetails();
+        String message = "%s failed with %s (request ID %s): %s".formatted(
+                requestName,
+                details.errorCode(),
+                serviceException.requestId(),
+                stripEncodedAuthorizationMessage(details.errorMessage()));
+        return new TrinoException(errorCode(serviceException), message, exception);
+    }
+
     public static boolean hasErrorCode(SdkException exception, Set<String> errorCodes)
     {
         return exception instanceof AwsServiceException serviceException &&
                 serviceException.awsErrorDetails() != null &&
                 errorCodes.contains(serviceException.awsErrorDetails().errorCode());
-    }
-
-    private static TrinoException translate(SdkException exception, String request)
-    {
-        if (!(exception instanceof AwsServiceException serviceException) || serviceException.awsErrorDetails() == null) {
-            return new TrinoException(AWS_API_ERROR, "%s failed: %s".formatted(request, exception.getMessage()), exception);
-        }
-        AwsErrorDetails details = serviceException.awsErrorDetails();
-        String message = "%s failed with %s (request ID %s): %s".formatted(
-                request,
-                details.errorCode(),
-                serviceException.requestId(),
-                stripEncodedAuthorizationMessage(details.errorMessage()));
-        return new TrinoException(errorCode(serviceException), message, exception);
     }
 
     private static ErrorCodeSupplier errorCode(AwsServiceException exception)

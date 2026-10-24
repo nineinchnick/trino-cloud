@@ -14,6 +14,7 @@
 
 package pl.net.was.cloud.aws;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import io.trino.spi.block.Block;
@@ -22,8 +23,10 @@ import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.type.Type;
 import pl.net.was.cloud.aws.SdkRowEncoder.ColumnWriter;
-import pl.net.was.cloud.aws.filters.FilterApplier;
+import pl.net.was.cloud.aws.filters.ColumnFilter;
+import pl.net.was.cloud.aws.filters.TableFilters;
 import software.amazon.awssdk.awscore.AwsRequest;
+import software.amazon.awssdk.core.SdkField;
 import software.amazon.awssdk.core.exception.SdkException;
 
 import java.util.List;
@@ -35,7 +38,6 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 import static java.util.function.Function.identity;
@@ -51,7 +53,7 @@ public final class AwsTable
     private final Map<String, ColumnHandle> columnHandles;
     private final Map<String, ColumnWriter> columnWriters;
     private final RowSource rowSource;
-    private final Optional<FilterApplier> filterApplier;
+    private final TableFilters filters;
     private final Optional<String> primaryKey;
     private final Optional<Inserter> inserter;
     private final Optional<Updater> updater;
@@ -61,7 +63,6 @@ public final class AwsTable
     {
         this.name = requireNonNull(builder.name, "name is null");
         requireNonNull(builder.columns, "columns is null");
-        this.filterApplier = Optional.ofNullable(builder.filterApplier);
         this.columns = builder.columns.columnMetadata();
         this.columnsByName = columns.stream()
                 .collect(toImmutableMap(ColumnMetadata::getName, identity()));
@@ -74,6 +75,7 @@ public final class AwsTable
         }
         this.columnWriters = columnWriters.buildOrThrow();
         this.rowSource = requireNonNull(builder.rowSource, "rowSource is null");
+        this.filters = TableFilters.create(name, columns, builder.filters, rowSource.requestFields());
         this.primaryKey = Optional.ofNullable(builder.primaryKey);
         this.inserter = Optional.ofNullable(builder.inserter);
         this.updater = Optional.ofNullable(builder.updater);
@@ -81,6 +83,8 @@ public final class AwsTable
         checkArgument((updater.isEmpty() && deleter.isEmpty()) || columnHandles.containsKey(ROW_ID), "%s supports updates or deletes, so it must have a %s column", name, ROW_ID);
         checkArgument((updater.isEmpty() && deleter.isEmpty()) || primaryKey.isPresent(), "%s supports updates or deletes, so it must have a primary key", name);
         primaryKey.ifPresent(column -> checkArgument(columnHandles.containsKey(column), "Primary key column %s does not exist in %s", column, name));
+        // without a filter on the primary key, a single statement could change or remove every resource
+        primaryKey.ifPresent(column -> checkArgument(filters.columns().contains(column), "Primary key column %s of %s does not have a filter", column, name));
         inserter.ifPresent(value -> value.columnSetters().keySet().forEach(column -> checkArgument(columnHandles.containsKey(column), "Inserted column %s does not exist in %s", column, name)));
         updater.ifPresent(value -> value.columns().forEach(column -> checkArgument(columnHandles.containsKey(column), "Updated column %s does not exist in %s", column, name)));
     }
@@ -146,15 +150,9 @@ public final class AwsTable
         }
     }
 
-    public FilterApplier requireFilterApplier()
+    public TableFilters filters()
     {
-        checkState(filterApplier.isPresent(), "%s does not support filters", name);
-        return filterApplier.get();
-    }
-
-    public Optional<FilterApplier> filterApplier()
-    {
-        return filterApplier;
+        return filters;
     }
 
     public Optional<Inserter> inserter()
@@ -181,6 +179,14 @@ public final class AwsTable
     public interface RowSource
     {
         Iterable<SdkRow> rows(AwsTable table, AwsTableHandle handle);
+
+        /**
+         * Fields of the builder of the AWS request, with the members that column filters can set.
+         */
+        default List<SdkField<?>> requestFields()
+        {
+            return List.of();
+        }
     }
 
     /**
@@ -234,7 +240,7 @@ public final class AwsTable
         private final SchemaTableName name;
         private final SdkTableColumns columns;
         private RowSource rowSource;
-        private FilterApplier filterApplier;
+        private List<ColumnFilter> filters = ImmutableList.of();
         private String primaryKey;
         private Inserter inserter;
         private Updater updater;
@@ -252,9 +258,9 @@ public final class AwsTable
             return this;
         }
 
-        public Builder filterApplier(FilterApplier filterApplier)
+        public Builder filters(List<ColumnFilter> filters)
         {
-            this.filterApplier = filterApplier;
+            this.filters = ImmutableList.copyOf(filters);
             return this;
         }
 

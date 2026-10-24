@@ -31,11 +31,11 @@ import io.trino.testing.TestingConnectorSession;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
-import pl.net.was.cloud.aws.filters.BucketFilter;
-import pl.net.was.cloud.aws.filters.FilterApplier;
-import pl.net.was.cloud.aws.filters.FilterType;
+import pl.net.was.cloud.aws.filters.ColumnFilter;
+import software.amazon.awssdk.services.ec2.model.DescribeVpcsRequest;
 import software.amazon.awssdk.services.ec2.model.Vpc;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.S3Object;
 
 import java.util.List;
@@ -50,7 +50,9 @@ import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.util.function.Function.identity;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.TestInstance.Lifecycle.PER_CLASS;
-import static pl.net.was.cloud.aws.filters.FilterApplier.ID_BATCH_SIZE;
+import static pl.net.was.cloud.aws.filters.ColumnFilter.partition;
+import static pl.net.was.cloud.aws.filters.ColumnFilter.requestMember;
+import static pl.net.was.cloud.aws.filters.TableFilters.BATCH_SIZE;
 
 @TestInstance(PER_CLASS)
 final class TestAwsSplitManager
@@ -88,7 +90,7 @@ final class TestAwsSplitManager
     @Test
     void testSplitPerRegionWithoutFilters()
     {
-        for (String table : List.of("instances", "images", "snapshots", "vpcs")) {
+        for (String table : List.of("instances", "vpcs")) {
             assertThat(splits(new AwsTableHandle(new SchemaTableName("ec2", table))))
                     .as(table)
                     .extracting(TestAwsSplitManager::filteredColumns)
@@ -96,10 +98,36 @@ final class TestAwsSplitManager
         }
     }
 
+    // without an owner, AWS would list all public images and snapshots
+    @Test
+    void testDefaultOwner()
+    {
+        for (String table : List.of("images", "snapshots")) {
+            assertThat(splits(new AwsTableHandle(new SchemaTableName("ec2", table))))
+                    .as(table)
+                    .extracting(TestAwsSplitManager::filteredColumns)
+                    .containsExactly(
+                            Map.of("region", List.of("eu-west-1"), "owner_id", List.of("self")),
+                            Map.of("region", List.of("us-east-1"), "owner_id", List.of("self")));
+        }
+    }
+
+    // IDs alone limit the results, and can refer to public or shared images
+    @Test
+    void testNoDefaultOwnerWithIds()
+    {
+        assertThat(splits(filtered("ec2", "images", "image_id", List.of("ami-1"))))
+                .extracting(TestAwsSplitManager::filteredColumns)
+                .containsExactly(Map.of("region", List.of("eu-west-1")), Map.of("region", List.of("us-east-1")));
+        assertThat(splits(filtered("ec2", "images", "owner_id", List.of("amazon"))))
+                .extracting(TestAwsSplitManager::filteredColumns)
+                .containsExactly(Map.of("region", List.of("eu-west-1")), Map.of("region", List.of("us-east-1")));
+    }
+
     @Test
     void testSplitPerRegionWhenValuesFitInOneRequest()
     {
-        assertThat(splits(filtered("ec2", "instances", "instance_id", ids(ID_BATCH_SIZE))))
+        assertThat(splits(filtered("ec2", "instances", "instance_id", ids(BATCH_SIZE))))
                 .extracting(TestAwsSplitManager::filteredColumns)
                 .containsExactly(Map.of("region", List.of("eu-west-1")), Map.of("region", List.of("us-east-1")));
     }
@@ -118,11 +146,18 @@ final class TestAwsSplitManager
     }
 
     @Test
+    void testNoSplitsForConstraintMatchingNoRows()
+    {
+        assertThat(splits(new AwsTableHandle(new SchemaTableName("ec2", "vpcs")).withConstraint(TupleDomain.none())))
+                .isEmpty();
+    }
+
+    @Test
     void testSplitPerRegionAndBatchOfIds()
     {
-        List<String> ids = ids(2 * ID_BATCH_SIZE + 1);
+        List<String> ids = ids(2 * BATCH_SIZE + 1);
         List<Map<String, List<String>>> expected = REGIONS.stream()
-                .flatMap(region -> Stream.of(ids.subList(0, ID_BATCH_SIZE), ids.subList(ID_BATCH_SIZE, 2 * ID_BATCH_SIZE), ids.subList(2 * ID_BATCH_SIZE, ids.size()))
+                .flatMap(region -> Stream.of(ids.subList(0, BATCH_SIZE), ids.subList(BATCH_SIZE, 2 * BATCH_SIZE), ids.subList(2 * BATCH_SIZE, ids.size()))
                         .map(batch -> Map.of("region", List.of(region), "instance_id", batch)))
                 .toList();
 
@@ -200,63 +235,49 @@ final class TestAwsSplitManager
     @Test
     void testSplitPerCombinationOfBatches()
     {
-        assertThat(knownValueSplits(Map.of("vpc_id", List.of("vpc-1", "vpc-2", "vpc-3"))))
+        List<String> vpcIds = ids(BATCH_SIZE + 1);
+
+        assertThat(knownValueSplits(Map.of("vpc_id", vpcIds)))
                 .containsExactlyInAnyOrder(
-                        Map.of("owner_id", List.of("owner-a"), "vpc_id", List.of("vpc-1", "vpc-2")),
-                        Map.of("owner_id", List.of("owner-a"), "vpc_id", List.of("vpc-3")),
-                        Map.of("owner_id", List.of("owner-b"), "vpc_id", List.of("vpc-1", "vpc-2")),
-                        Map.of("owner_id", List.of("owner-b"), "vpc_id", List.of("vpc-3")));
+                        Map.of("owner_id", List.of("owner-a"), "vpc_id", vpcIds.subList(0, BATCH_SIZE)),
+                        Map.of("owner_id", List.of("owner-a"), "vpc_id", vpcIds.subList(BATCH_SIZE, vpcIds.size())),
+                        Map.of("owner_id", List.of("owner-b"), "vpc_id", vpcIds.subList(0, BATCH_SIZE)),
+                        Map.of("owner_id", List.of("owner-b"), "vpc_id", vpcIds.subList(BATCH_SIZE, vpcIds.size())));
     }
 
-    // owners are known values, like the configured regions of regional tables, and every split column is a varchar
+    // owners are known values, like the configured regions of regional tables, and VpcIds is a list member, which accepts a batch of values
     private static List<Map<String, List<String>>> knownValueSplits(Map<String, List<String>> filters)
     {
-        FilterApplier filterApplier = new FilterApplier()
-        {
-            @Override
-            public Map<String, FilterType> getSupportedFilters()
-            {
-                return Map.of("vpc_id", FilterType.EQUAL, "owner_id", FilterType.EQUAL);
-            }
-
-            @Override
-            public Map<String, Integer> getSplitBatchSizes()
-            {
-                return Map.of("vpc_id", 2, "owner_id", 1);
-            }
-
-            @Override
-            public Map<String, Supplier<List<String>>> getKnownValues()
-            {
-                return Map.of("owner_id", () -> List.of("owner-a", "owner-b"));
-            }
-        };
         AwsTable table = AwsTable.builder(new SchemaTableName("test", "vpcs"), SdkTableColumns.of(Vpc.builder().sdkFields()))
-                .rowSource((_, _) -> List.of())
-                .filterApplier(filterApplier)
+                .rowSource(RequestRowSource.of("client", DescribeVpcsRequest::builder, (_, _) -> List.of()))
+                .filters(List.of(
+                        partition("owner_id").knownValues(() -> List.of("owner-a", "owner-b")),
+                        requestMember("vpc_id", "VpcIds")))
                 .build();
-        return filteredSplits(table, filterApplier, filters);
+        return filteredSplits(table, filters);
     }
 
+    // Bucket is a scalar member, which accepts a single value
     private static List<Map<String, List<String>>> bucketSplits(Supplier<List<String>> bucketNames, Map<String, List<String>> filters)
     {
-        BucketFilter filterApplier = new BucketFilter(bucketNames);
+        ColumnFilter bucketFilter = requestMember("bucket_name", "Bucket").defaultValues(bucketNames);
         AwsTable table = AwsTable.builder(
                         new SchemaTableName("test", "objects"),
                         SdkTableColumns.builder(S3Object.builder().sdkFields())
-                                .prepend(new ColumnMetadata("bucket_name", VARCHAR), SdkRow::context)
+                                .prepend(new ColumnMetadata("bucket_name", VARCHAR), row -> row.requestValue("bucket_name"))
                                 .build())
-                .rowSource((_, _) -> List.of())
-                .filterApplier(filterApplier)
+                .rowSource(RequestRowSource.of("client", ListObjectsV2Request::builder, (_, _) -> List.of()))
+                .filters(List.of(bucketFilter))
                 .build();
-        return filteredSplits(table, filterApplier, filters);
+        return filteredSplits(table, filters);
     }
 
-    private static List<Map<String, List<String>>> filteredSplits(AwsTable table, FilterApplier filterApplier, Map<String, List<String>> filters)
+    private static List<Map<String, List<String>>> filteredSplits(AwsTable table, Map<String, List<String>> filters)
     {
         ImmutableMap.Builder<ColumnHandle, Domain> domains = ImmutableMap.builder();
         filters.forEach((column, values) -> domains.put(table.columnHandle(column), Domain.multipleValues(VARCHAR, values.stream().map(Slices::utf8Slice).toList())));
-        return AwsSplitManager.splits(table, filterApplier, TupleDomain.withColumnDomains(domains.buildOrThrow())).stream()
+        return table.filters().splitConstraints(TupleDomain.withColumnDomains(domains.buildOrThrow())).stream()
+                .map(AwsConnectorSplit::new)
                 .map(TestAwsSplitManager::filteredColumns)
                 .toList();
     }
