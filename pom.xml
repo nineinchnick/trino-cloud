@@ -227,4 +227,37 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>errorprone-compiler</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-compiler-plugin</artifactId>
+                        <configuration>
+                            <!-- forking not required due to JVM flags in .mvn/jvm.config -->
+                            <!-- see https://errorprone.info/docs/installation#maven -->
+                            <!-- Do not fail on error-prone's warnings even for modules using air.compiler.fail-warnings -->
+                            <failOnWarning>false</failOnWarning>
+                            <compilerArgs combine.children="append">
+                                <arg>-XDcompilePolicy=simple</arg>
+                                <arg>--should-stop=ifError=FLOW</arg>
+                                <arg>-Xplugin:ErrorProne @${air.main.basedir}/.mvn/errorprone.config \
+                                    -XepExcludedPaths:.*/target/generated-(|test-)sources/.*</arg>
+                            </compilerArgs>
+                            <annotationProcessorPaths>
+                                <path>
+                                    <groupId>com.google.errorprone</groupId>
+                                    <artifactId>error_prone_core</artifactId>
+                                    <version>${dep.errorprone.version}</version>
+                                </path>
+                            </annotationProcessorPaths>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

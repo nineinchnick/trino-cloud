@@ -37,6 +37,7 @@ import java.util.Map;
 import java.util.function.BiConsumer;
 
 import static io.trino.spi.StandardErrorCode.INVALID_COLUMN_REFERENCE;
+import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.type.TinyintType.TINYINT;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.util.Objects.requireNonNull;
@@ -81,14 +82,11 @@ public class AwsMergeSink
         for (int position = 0; position < page.getPositionCount(); position++) {
             byte op = TINYINT.getByte(ops, position);
             switch (op) {
-                case INSERT_OPERATION_NUMBER:
-                    inserter.accept(page, position);
-                    break;
-                case UPDATE_OPERATION_NUMBER:
-                    updater.accept(page, position);
-                case DELETE_OPERATION_NUMBER:
-                    // TODO support batch operations, passing multiple IDs to the deleter
-                    deleter.accept(rowIds, position);
+                case INSERT_OPERATION_NUMBER -> inserter.accept(page, position);
+                case UPDATE_OPERATION_NUMBER -> updater.accept(page, position);
+                // TODO support batch operations, passing multiple IDs to the deleter
+                case DELETE_OPERATION_NUMBER -> deleter.accept(rowIds, position);
+                default -> throw new TrinoException(NOT_SUPPORTED, "Unsupported merge operation: " + op);
             }
         }
     }

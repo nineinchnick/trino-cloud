@@ -26,7 +26,6 @@ import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.transaction.IsolationLevel;
 
 import static java.util.Objects.requireNonNull;
-import static pl.net.was.cloud.aws.AwsTransactionHandle.INSTANCE;
 
 public class AwsConnector
         implements Connector
@@ -55,7 +54,7 @@ public class AwsConnector
     @Override
     public ConnectorTransactionHandle beginTransaction(IsolationLevel isolationLevel, boolean readOnly, boolean autoCommit)
     {
-        return INSTANCE;
+        return AwsTransactionHandle.INSTANCE;
     }
 
     @Override
