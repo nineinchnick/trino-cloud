@@ -430,7 +430,7 @@ pushed down for every `ec2` table except `ec2.regions`, and are not listed.
   `image_id`, `image_type`, `kernel_id`, `name`, `owner_id`, `ramdisk_id`,
   `root_device_name`, `root_device_type`, `source_image_id`,
   `source_image_region`, `source_instance_id`, `sriov_net_support`, `state`,
-  `virtualization_type`
+  `tags`, `virtualization_type`
 - `ec2.instance_types`: `auto_recovery_supported`, `bare_metal`,
   `burstable_performance_supported`, `current_generation`,
   `dedicated_hosts_supported`, `free_tier_eligible`, `hibernation_supported`,
@@ -442,41 +442,44 @@ pushed down for every `ec2` table except `ec2.regions`, and are not listed.
   `instance_type`, `ipv6_address`, `kernel_id`, `key_name`, `outpost_arn`,
   `platform_details`, `private_dns_name`, `private_ip_address`, `ramdisk_id`,
   `root_device_name`, `root_device_type`, `source_dest_check`,
-  `spot_instance_request_id`, `state_name`, `subnet_id`, `tpm_support`,
+  `spot_instance_request_id`, `state_name`, `subnet_id`, `tags`, `tpm_support`,
   `usage_operation`, `virtualization_type`, `vpc_id`
-- `ec2.key_pairs`: `key_name`, `key_pair_id`
-- `ec2.launch_templates`: `launch_template_name`
-- `ec2.nat_gateways`: `nat_gateway_id`, `state`, `subnet_id`, `vpc_id`
+- `ec2.key_pairs`: `key_name`, `key_pair_id`, `tags`
+- `ec2.launch_templates`: `launch_template_name`, `tags`
+- `ec2.nat_gateways`: `nat_gateway_id`, `state`, `subnet_id`, `tags`, `vpc_id`
 - `ec2.network_interfaces`: `availability_zone`, `availability_zone_id`,
   `description`, `interface_type`, `mac_address`, `network_interface_id`,
   `owner_id`, `private_dns_name`, `private_ip_address`, `requester_id`,
-  `requester_managed`, `source_dest_check`, `status`, `subnet_id`, `vpc_id`
-- `ec2.placement_groups`: `group_arn`, `group_name`, `spread_level`, `state`,
-  `strategy`
-- `ec2.prefix_lists`: `prefix_list_id`, `prefix_list_name`
-- `ec2.regions`: `endpoint`, `opt_in_status`, `region_name`
-- `ec2.route_tables`: `owner_id`, `route_table_id`, `vpc_id`
-- `ec2.security_groups`: `description`, `group_id`, `group_name`, `owner_id`,
+  `requester_managed`, `source_dest_check`, `status`, `subnet_id`, `tag_set`,
   `vpc_id`
+- `ec2.placement_groups`: `group_arn`, `group_name`, `spread_level`, `state`,
+  `strategy`, `tags`
+- `ec2.prefix_lists`: `prefix_list_id`, `prefix_list_name`
+- `ec2.public_ipv4_pools`: `tags`
+- `ec2.regions`: `endpoint`, `opt_in_status`, `region_name`
+- `ec2.route_tables`: `owner_id`, `route_table_id`, `tags`, `vpc_id`
+- `ec2.security_groups`: `description`, `group_id`, `group_name`, `owner_id`,
+  `tags`, `vpc_id`
 - `ec2.snapshots`: `description`, `encrypted`, `owner_id`, `snapshot_id`,
-  `state`, `storage_tier`, `transfer_type`, `volume_id`, `volume_size`
+  `state`, `storage_tier`, `tags`, `transfer_type`, `volume_id`, `volume_size`
 - `ec2.subnets`: `availability_zone`, `availability_zone_id`,
   `available_ip_address_count`, `cidr_block`, `customer_owned_ipv4_pool`,
   `default_for_az`, `enable_dns64`, `enable_lni_at_device_index`, `ipv6_native`,
   `map_customer_owned_ip_on_launch`, `map_public_ip_on_launch`, `outpost_arn`,
-  `owner_id`, `state`, `subnet_arn`, `subnet_id`, `vpc_id`
+  `owner_id`, `state`, `subnet_arn`, `subnet_id`, `tags`, `vpc_id`
 - `ec2.tags`: `key`, `resource_id`, `resource_type`, `value`
 - `ec2.volumes`: `availability_zone`, `availability_zone_id`, `encrypted`,
   `fast_restored`, `multi_attach_enabled`, `size`, `snapshot_id`, `state`,
-  `volume_id`, `volume_type`
+  `tags`, `volume_id`, `volume_type`
 - `ec2.vpc_endpoints`: `ip_address_type`, `service_name`, `service_region`,
-  `vpc_endpoint_id`, `vpc_endpoint_type`, `vpc_id`
-- `ec2.vpc_peering_connections`: `vpc_peering_connection_id`
-- `ec2.vpcs`: `dhcp_options_id`, `is_default`, `owner_id`, `state`, `vpc_id`
-- `ec2.vpn_connections`: `customer_gateway_id`, `state`, `transit_gateway_id`,
-  `type`, `vpn_connection_id`, `vpn_gateway_id`
-- `ec2.vpn_gateways`: `amazon_side_asn`, `availability_zone`, `state`, `type`,
-  `vpn_gateway_id`
+  `tags`, `vpc_endpoint_id`, `vpc_endpoint_type`, `vpc_id`
+- `ec2.vpc_peering_connections`: `tags`, `vpc_peering_connection_id`
+- `ec2.vpcs`: `dhcp_options_id`, `is_default`, `owner_id`, `state`, `tags`,
+  `vpc_id`
+- `ec2.vpn_connections`: `customer_gateway_id`, `state`, `tags`,
+  `transit_gateway_id`, `type`, `vpn_connection_id`, `vpn_gateway_id`
+- `ec2.vpn_gateways`: `amazon_side_asn`, `availability_zone`, `state`, `tags`,
+  `type`, `vpn_gateway_id`
 - `s3.deleted_objects`: `bucket_name`
 - `s3.object_versions`: `bucket_name`
 - `s3.objects`: `bucket_name`
@@ -488,6 +491,11 @@ the same name, like the `vpc-id` filter for the `vpc_id` column, or the
 `instance-state-name` filter for the `state_name` column of `ec2.instances`.
 EC2 filter values treat `*` and `?` as wildcards, so Trino still applies these
 predicates to the returned rows.
+
+For the `tags` column, and the `tag_set` column of `ec2.network_interfaces`,
+equality and `IN` predicates on the value of a tag, like `tags['Name'] = 'web'`
+or `element_at(tags, 'Name') IN ('web', 'db')`, are pushed down as the
+`tag:Name` EC2 filter.
 
 # SQL support
 
@@ -719,6 +727,11 @@ the `ColumnFilter` factories:
 - `ec2Filter(column, filterName)` adds an EC2 filter to the `Filters` member of the request, like
   `ec2Filter("instance_id", "instance-id")`. EC2 filter values treat `*` and `?` as wildcards, so Trino still
   applies the predicate.
+- `ec2Filters(filterNames...)` declares EC2 filters on the columns with the same name in snake case, like
+  `vpc_id` for `vpc-id`. The filters accepted by every EC2 API operation are not a part of the SDK model, so copy
+  their names from the AWS API reference. `TAG_FILTERS` stands for the `tag:<key>` filters.
+- `tagFilters(column)` adds a `tag:<key>` EC2 filter for every key used in equality and `IN` predicates on the
+  values of the map column, like `tags['Name'] = 'web'`.
 - `partition(column)` chooses the client that sends the request, like the client of a region. Regional EC2 tables
   get the `region` partition column from `regionalTable`, with the configured regions as its known values.
 

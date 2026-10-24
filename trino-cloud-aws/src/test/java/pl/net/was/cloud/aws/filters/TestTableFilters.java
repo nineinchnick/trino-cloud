@@ -20,10 +20,18 @@ import io.trino.spi.connector.ConnectorTableHandle;
 import io.trino.spi.connector.Constraint;
 import io.trino.spi.connector.ConstraintApplicationResult;
 import io.trino.spi.connector.SchemaTableName;
+import io.trino.spi.expression.Call;
+import io.trino.spi.expression.ConnectorExpression;
+import io.trino.spi.expression.Constant;
+import io.trino.spi.expression.FunctionName;
+import io.trino.spi.expression.Variable;
 import io.trino.spi.predicate.Domain;
 import io.trino.spi.predicate.Range;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.predicate.ValueSet;
+import io.trino.spi.type.ArrayType;
+import io.trino.spi.type.MapType;
+import io.trino.spi.type.TypeOperators;
 import org.junit.jupiter.api.Test;
 import pl.net.was.cloud.aws.AwsColumnHandle;
 import pl.net.was.cloud.aws.AwsTableHandle;
@@ -38,8 +46,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.IntStream;
 
 import static io.airlift.slice.Slices.utf8Slice;
+import static io.trino.spi.expression.StandardFunctions.AND_FUNCTION_NAME;
+import static io.trino.spi.expression.StandardFunctions.ARRAY_CONSTRUCTOR_FUNCTION_NAME;
+import static io.trino.spi.expression.StandardFunctions.EQUAL_OPERATOR_FUNCTION_NAME;
+import static io.trino.spi.expression.StandardFunctions.IN_PREDICATE_FUNCTION_NAME;
+import static io.trino.spi.expression.StandardFunctions.NOT_EQUAL_OPERATOR_FUNCTION_NAME;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.IntegerType.INTEGER;
 import static io.trino.spi.type.TimestampWithTimeZoneType.TIMESTAMP_TZ_MILLIS;
@@ -49,22 +63,27 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static pl.net.was.cloud.aws.filters.ColumnFilter.ec2Filter;
 import static pl.net.was.cloud.aws.filters.ColumnFilter.partition;
 import static pl.net.was.cloud.aws.filters.ColumnFilter.requestMember;
+import static pl.net.was.cloud.aws.filters.ColumnFilter.tagFilters;
+import static pl.net.was.cloud.aws.filters.TableFilters.BATCH_SIZE;
 
 final class TestTableFilters
 {
     private static final SchemaTableName TABLE_NAME = new SchemaTableName("ec2", "vpcs");
+    private static final MapType TAGS_TYPE = new MapType(VARCHAR, VARCHAR, new TypeOperators());
     private static final List<ColumnMetadata> COLUMNS = List.of(
             new ColumnMetadata("region", VARCHAR),
             new ColumnMetadata("vpc_id", VARCHAR),
             new ColumnMetadata("state", VARCHAR),
             new ColumnMetadata("is_default", BOOLEAN),
             new ColumnMetadata("max_results", INTEGER),
-            new ColumnMetadata("created", TIMESTAMP_TZ_MILLIS));
+            new ColumnMetadata("created", TIMESTAMP_TZ_MILLIS),
+            new ColumnMetadata("tags", TAGS_TYPE));
     private static final AwsColumnHandle REGION = new AwsColumnHandle("region", VARCHAR);
     private static final AwsColumnHandle VPC_ID = new AwsColumnHandle("vpc_id", VARCHAR);
     private static final AwsColumnHandle STATE = new AwsColumnHandle("state", VARCHAR);
     private static final AwsColumnHandle IS_DEFAULT = new AwsColumnHandle("is_default", BOOLEAN);
     private static final AwsColumnHandle MAX_RESULTS = new AwsColumnHandle("max_results", INTEGER);
+    private static final AwsColumnHandle TAGS = new AwsColumnHandle("tags", TAGS_TYPE);
     private static final TableFilters FILTERS = TableFilters.create(
             TABLE_NAME,
             COLUMNS,
@@ -75,6 +94,7 @@ final class TestTableFilters
                     ec2Filter("is_default", "is-default"),
                     requestMember("max_results", "MaxResults")),
             DescribeVpcsRequest.builder().sdkFields());
+    private static final TableFilters TAG_FILTERS = TableFilters.create(TABLE_NAME, COLUMNS, List.of(tagFilters("tags")), DescribeVpcsRequest.builder().sdkFields());
     private static final AwsTableHandle TABLE = new AwsTableHandle(TABLE_NAME);
 
     @Test
@@ -268,6 +288,61 @@ final class TestTableFilters
     }
 
     @Test
+    void testPushesDownTagFilters()
+    {
+        ConnectorExpression expression = new Call(BOOLEAN, AND_FUNCTION_NAME, List.of(
+                equal(subscript("$operator$subscript", "Name"), varchar("a")),
+                new Call(BOOLEAN, IN_PREDICATE_FUNCTION_NAME, List.of(
+                        subscript("element_at", "Owner"),
+                        new Call(new ArrayType(VARCHAR), ARRAY_CONSTRUCTOR_FUNCTION_NAME, List.of(varchar("b"), varchar("c"))))),
+                equal(subscript("$operator$subscript", "Ignored"), new Variable("vpc_id", VARCHAR))));
+
+        Optional<ConstraintApplicationResult<ConnectorTableHandle>> result = applyTagFilter(TABLE, expression);
+
+        AwsTableHandle newTable = (AwsTableHandle) result.orElseThrow().getHandle();
+        assertThat(newTable.constraint()).isEqualTo(TupleDomain.withColumnDomains(Map.of(
+                AwsColumnHandle.mapEntry(TAGS, "Name"), values("a"),
+                AwsColumnHandle.mapEntry(TAGS, "Owner"), values("b", "c"))));
+        // the engine still applies the predicate, because EC2 filter values treat * and ? as wildcards
+        assertThat(result.orElseThrow().getRemainingExpression()).hasValue(expression);
+        // pushing down the same predicate again would make the planner loop
+        assertThat(applyTagFilter(newTable, expression)).isEmpty();
+
+        DescribeVpcsRequest.Builder request = DescribeVpcsRequest.builder();
+        TAG_FILTERS.applyTo(request, newTable.constraint());
+        assertThat(request.build().filters()).containsExactlyInAnyOrder(
+                Filter.builder().name("tag:Name").values("a").build(),
+                Filter.builder().name("tag:Owner").values("b", "c").build());
+    }
+
+    @Test
+    void testIgnoresOtherTagPredicates()
+    {
+        assertThat(applyTagFilter(TABLE, new Call(BOOLEAN, NOT_EQUAL_OPERATOR_FUNCTION_NAME, List.of(subscript("$operator$subscript", "Name"), varchar("a"))))).isEmpty();
+        assertThat(applyTagFilter(TABLE, equal(subscript("$operator$subscript", "Name"), new Variable("vpc_id", VARCHAR)))).isEmpty();
+        assertThat(applyTagFilter(TABLE, equal(new Call(VARCHAR, new FunctionName("lower"), List.of(new Variable("vpc_id", VARCHAR))), varchar("a")))).isEmpty();
+        // the map column of a table without tag filters
+        assertThat(FILTERS.applyFilter(TABLE, new Constraint(TupleDomain.all(), equal(subscript("$operator$subscript", "Name"), varchar("a")), Map.of("vpc_id", VPC_ID, "tags", TAGS))))
+                .isEmpty();
+    }
+
+    @Test
+    void testSplitsByTagFilterValues()
+    {
+        List<Object> names = IntStream.range(0, BATCH_SIZE + 1)
+                .mapToObj(value -> (Object) utf8Slice("name-%03d".formatted(value)))
+                .toList();
+        AwsColumnHandle name = AwsColumnHandle.mapEntry(TAGS, "Name");
+
+        assertThat(TAG_FILTERS.splitConstraints(TupleDomain.withColumnDomains(Map.of(name, Domain.multipleValues(VARCHAR, names)))))
+                .containsExactly(
+                        TupleDomain.withColumnDomains(Map.of(name, Domain.multipleValues(VARCHAR, names.subList(0, BATCH_SIZE)))),
+                        TupleDomain.withColumnDomains(Map.of(name, Domain.multipleValues(VARCHAR, names.subList(BATCH_SIZE, names.size())))));
+        assertThat(TAG_FILTERS.splitConstraints(TupleDomain.all()))
+                .containsExactly(TupleDomain.all());
+    }
+
+    @Test
     void testRejectsInvalidFilters()
     {
         assertThatThrownBy(() -> create(requestMember("unknown", "VpcIds")))
@@ -288,9 +363,32 @@ final class TestTableFilters
         assertThatThrownBy(() -> create(ec2Filter("vpc_id", "vpc-id"), requestMember("vpc_id", "VpcIds")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("ec2.vpcs has many filters on the same column");
+        assertThatThrownBy(() -> create(tagFilters("vpc_id")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Column vpc_id for tag filters is not a map with varchar keys and values: varchar");
         assertThatThrownBy(() -> TableFilters.create(TABLE_NAME, COLUMNS, List.of(ec2Filter("state", "state")), ListObjectsV2Request.builder().sdkFields()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Request of ec2.vpcs does not have EC2 filters for the filter on state");
+    }
+
+    private static Optional<ConstraintApplicationResult<ConnectorTableHandle>> applyTagFilter(AwsTableHandle table, ConnectorExpression expression)
+    {
+        return TAG_FILTERS.applyFilter(table, new Constraint(TupleDomain.all(), expression, Map.of("vpc_id", VPC_ID, "tags", TAGS)));
+    }
+
+    private static Call subscript(String functionName, String key)
+    {
+        return new Call(VARCHAR, new FunctionName(functionName), List.of(new Variable("tags", TAGS.type()), varchar(key)));
+    }
+
+    private static Call equal(ConnectorExpression left, ConnectorExpression right)
+    {
+        return new Call(BOOLEAN, EQUAL_OPERATOR_FUNCTION_NAME, List.of(left, right));
+    }
+
+    private static Constant varchar(String value)
+    {
+        return new Constant(utf8Slice(value), VARCHAR);
     }
 
     private static TableFilters create(ColumnFilter... filters)
