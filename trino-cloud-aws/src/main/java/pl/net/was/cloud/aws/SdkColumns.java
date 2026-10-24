@@ -14,7 +14,6 @@
 
 package pl.net.was.cloud.aws;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.type.ArrayType;
@@ -55,7 +54,7 @@ final class SdkColumns
     // nested objects deeper than this are mapped to VARCHAR, so recursive shapes don't produce infinite types
     static final int MAX_NESTING_DEPTH = 8;
 
-    // all types must be handled in SdkRowEncoder.encodeValue()
+    // all types must be handled in SdkRowEncoder.writeValue()
     // SdkPojo, List<?> and Map<String, ?> are handled separately
     private static final Map<MarshallingType<?>, Type> TYPE_MAP = ImmutableMap.<MarshallingType<?>, Type>builder()
             .put(MarshallingType.BYTE, TINYINT)
@@ -89,19 +88,14 @@ final class SdkColumns
 
     private SdkColumns() {}
 
+    /**
+     * Columns mapped from the fields, in the same order as {@link #mappedFields(List)}.
+     */
     public static List<ColumnMetadata> columns(List<SdkField<?>> sdkFields)
     {
-        return columns(List.of(), sdkFields);
-    }
-
-    public static List<ColumnMetadata> columns(List<ColumnMetadata> extraColumns, List<SdkField<?>> sdkFields)
-    {
-        List<ColumnMetadata> columns = ImmutableList.<ColumnMetadata>builder()
-                .addAll(extraColumns)
-                .addAll(mappedFields(sdkFields).stream()
-                        .map(field -> new ColumnMetadata(columnName(field), type(field)))
-                        .toList())
-                .build();
+        List<ColumnMetadata> columns = mappedFields(sdkFields).stream()
+                .map(field -> new ColumnMetadata(columnName(field), type(field)))
+                .collect(toImmutableList());
         checkUniqueNames(columns.stream().map(ColumnMetadata::getName).toList());
         return columns;
     }
@@ -193,7 +187,7 @@ final class SdkColumns
                 .map(trait -> (SdkField<?>) trait.memberFieldInfo());
     }
 
-    private static void checkUniqueNames(List<String> names)
+    static void checkUniqueNames(List<String> names)
     {
         Set<String> uniqueNames = new HashSet<>();
         for (String name : names) {

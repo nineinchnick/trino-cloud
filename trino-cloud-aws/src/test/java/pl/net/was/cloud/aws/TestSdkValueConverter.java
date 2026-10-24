@@ -15,6 +15,7 @@ package pl.net.was.cloud.aws;
 
 import io.trino.spi.TrinoException;
 import io.trino.spi.block.Block;
+import io.trino.spi.block.BlockBuilder;
 import io.trino.spi.type.ArrayType;
 import io.trino.spi.type.RowType;
 import io.trino.spi.type.Type;
@@ -90,7 +91,7 @@ final class TestSdkValueConverter
     void testArrayToList()
     {
         ArrayType arrayType = new ArrayType(VARCHAR);
-        Block block = writeNativeValue(arrayType, SdkRowEncoder.encodeValue(arrayType, List.of("sg-1", "sg-2")));
+        Block block = encodeValue(arrayType, List.of("sg-1", "sg-2"));
 
         assertThat(SdkValueConverter.toSdkValue(field(RunInstancesRequest.builder(), "SecurityGroupIds"), arrayType, block, 0))
                 .isEqualTo(List.of("sg-1", "sg-2"));
@@ -146,7 +147,7 @@ final class TestSdkValueConverter
     private static Block encode(SdkField<?> field, Object value)
     {
         Type type = SdkColumns.type(field);
-        return writeNativeValue(type, SdkRowEncoder.encodeValue(type, value));
+        return encodeValue(type, value);
     }
 
     private static Block bigint(long value)
@@ -165,5 +166,12 @@ final class TestSdkValueConverter
                 .filter(field -> field.memberName().equals(memberName))
                 .findFirst()
                 .orElseThrow();
+    }
+
+    private static Block encodeValue(Type type, Object value)
+    {
+        BlockBuilder output = type.createBlockBuilder(null, 1);
+        SdkRowEncoder.writeValue(type, output, value);
+        return output.build();
     }
 }

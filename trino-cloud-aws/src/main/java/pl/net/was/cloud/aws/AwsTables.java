@@ -15,14 +15,12 @@
 package pl.net.was.cloud.aws;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.inject.Inject;
 import io.airlift.slice.Slice;
-import io.airlift.slice.Slices;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.SchemaTableName;
@@ -87,7 +85,6 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.S3Object;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
@@ -100,17 +97,15 @@ import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
+import static io.airlift.slice.Slices.utf8Slice;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.StandardErrorCode.TABLE_NOT_FOUND;
 import static io.trino.spi.type.VarcharType.VARCHAR;
-import static java.util.Collections.unmodifiableList;
 import static java.util.Objects.requireNonNull;
 import static java.util.function.Function.identity;
 import static pl.net.was.cloud.aws.AwsTable.ROW_ID;
-import static pl.net.was.cloud.aws.SdkColumns.columns;
 import static pl.net.was.cloud.aws.SdkIterables.emptyOnErrorCodes;
 import static pl.net.was.cloud.aws.SdkIterables.fallbackOnErrorCodes;
-import static pl.net.was.cloud.aws.SdkRowEncoder.encodeRow;
 import static pl.net.was.cloud.aws.SdkValueConverter.toSdkValue;
 
 public class AwsTables
@@ -132,7 +127,12 @@ public class AwsTables
                         simpleTable("ec2", "availability_zones", AvailabilityZone.builder().sdkFields(), () -> ec2.describeAvailabilityZones().availabilityZones()),
                         AwsTable.builder(
                                         new SchemaTableName("ec2", "images"),
-                                        columns(List.of(rowIdColumn(), new ColumnMetadata("instance_id", VARCHAR)), Image.builder().sdkFields()))
+                                        SdkTableColumns.builder(Image.builder().sdkFields())
+                                                // populate row_id - to support DELETE
+                                                .prepend(rowIdColumn(), row -> utf8Slice(((Image) row.object()).imageId()))
+                                                // populate instance_id - to support INSERT
+                                                .prepend(new ColumnMetadata("instance_id", VARCHAR), _ -> null)
+                                                .build())
                                 .rowSource((table, handle) -> images(ec2, table, handle))
                                 .filterApplier(new ImageFilter())
                                 .primaryKey("image_id")
@@ -142,7 +142,10 @@ public class AwsTables
                         simpleTable("ec2", "instance_types", InstanceTypeInfo.builder().sdkFields(), () -> ec2.describeInstanceTypesPaginator(DescribeInstanceTypesRequest.builder().build()).instanceTypes()),
                         AwsTable.builder(
                                         new SchemaTableName("ec2", "instances"),
-                                        withColumnAfter(columns(List.of(rowIdColumn()), Instance.builder().sdkFields()), "state", new ColumnMetadata(STATE_NAME, VARCHAR)))
+                                        SdkTableColumns.builder(Instance.builder().sdkFields())
+                                                .prepend(rowIdColumn(), row -> utf8Slice(((Instance) row.object()).instanceId()))
+                                                .insertAfter("state", new ColumnMetadata(STATE_NAME, VARCHAR), row -> stateName((Instance) row.object()))
+                                                .build())
                                 .rowSource((table, handle) -> instances(ec2, table, handle))
                                 .filterApplier(new InstanceFilter())
                                 .primaryKey("instance_id")
@@ -162,7 +165,7 @@ public class AwsTables
                         simpleTable("ec2", "public_ipv4_pools", PublicIpv4Pool.builder().sdkFields(), () -> ec2.describePublicIpv4PoolsPaginator(DescribePublicIpv4PoolsRequest.builder().build()).publicIpv4Pools()),
                         simpleTable("ec2", "regions", Region.builder().sdkFields(), () -> ec2.describeRegions().regions()),
                         simpleTable("ec2", "route_tables", RouteTable.builder().sdkFields(), () -> ec2.describeRouteTablesPaginator().routeTables()),
-                        AwsTable.builder(new SchemaTableName("ec2", "snapshots"), columns(Snapshot.builder().sdkFields()))
+                        AwsTable.builder(new SchemaTableName("ec2", "snapshots"), SdkTableColumns.of(Snapshot.builder().sdkFields()))
                                 .rowSource((table, handle) -> snapshots(ec2, table, handle))
                                 .filterApplier(new SnapshotFilter())
                                 .build(),
@@ -175,8 +178,8 @@ public class AwsTables
                         simpleTable("ec2", "vpcs", Vpc.builder().sdkFields(), () -> ec2.describeVpcsPaginator().vpcs()),
                         simpleTable("ec2", "vpn_connections", VpnConnection.builder().sdkFields(), () -> ec2.describeVpnConnections().vpnConnections()),
                         simpleTable("ec2", "vpn_gateways", VpnGateway.builder().sdkFields(), () -> ec2.describeVpnGateways().vpnGateways()),
-                        AwsTable.builder(new SchemaTableName("s3", "buckets"), columns(Bucket.builder().sdkFields()))
-                                .rowSource((_, _) -> encodeRows(s3.listBucketsPaginator(ListBucketsRequest.builder().build()).buckets(), List.of()))
+                        AwsTable.builder(new SchemaTableName("s3", "buckets"), SdkTableColumns.of(Bucket.builder().sdkFields()))
+                                .rowSource((_, _) -> sdkRows(s3.listBucketsPaginator(ListBucketsRequest.builder().build()).buckets()))
                                 .inserter(new Inserter(CreateBucketRequest::builder, request -> createBucket(s3, (CreateBucketRequest) request), bucketSetters()))
                                 .build(),
                         bucketTable("objects", S3Object.builder().sdkFields(), bucketName -> s3.listObjectsV2Paginator(ListObjectsV2Request.builder().bucket(bucketName).build()).contents()),
@@ -206,8 +209,8 @@ public class AwsTables
 
     private static AwsTable simpleTable(String schema, String table, List<SdkField<?>> sdkFields, Supplier<Iterable<? extends SdkPojo>> rows)
     {
-        return AwsTable.builder(new SchemaTableName(schema, table), columns(sdkFields))
-                .rowSource((_, _) -> encodeRows(rows.get(), List.of()))
+        return AwsTable.builder(new SchemaTableName(schema, table), SdkTableColumns.of(sdkFields))
+                .rowSource((_, _) -> sdkRows(rows.get()))
                 .build();
     }
 
@@ -215,13 +218,18 @@ public class AwsTables
     {
         return AwsTable.builder(
                         new SchemaTableName("s3", table),
-                        columns(List.of(new ColumnMetadata("bucket_name", VARCHAR)), sdkFields))
+                        SdkTableColumns.builder(sdkFields)
+                                .prepend(new ColumnMetadata("bucket_name", VARCHAR), SdkRow::context)
+                                .build())
                 .rowSource((awsTable, handle) -> {
                     awsTable.requireFilterApplier().checkRequiredFilters(handle);
                     List<String> bucketNames = awsTable.requireFilterApplier().getFilterValues(awsTable.columnHandle("bucket_name"), handle.constraint());
                     return Iterables.concat(Lists.transform(
                             bucketNames,
-                            bucketName -> encodeRows(rows.apply(bucketName), List.of(_ -> bucketName))));
+                            bucketName -> {
+                                Slice context = utf8Slice(bucketName);
+                                return Iterables.transform(rows.apply(bucketName), object -> new SdkRow(object, context));
+                            }));
                 })
                 .filterApplier(new BucketFilter())
                 .build();
@@ -232,7 +240,7 @@ public class AwsTables
         return ColumnMetadata.builder().setName(ROW_ID).setType(VARCHAR).setHidden(true).build();
     }
 
-    private static Iterable<List<?>> images(Ec2Client ec2, AwsTable table, AwsTableHandle handle)
+    private static Iterable<SdkRow> images(Ec2Client ec2, AwsTable table, AwsTableHandle handle)
     {
         FilterApplier filter = table.requireFilterApplier();
         List<String> imageIds = filter.getFilterValues(table.columnHandle("image_id"), handle.constraint());
@@ -250,16 +258,10 @@ public class AwsTables
         Iterable<Image> images = imageIds.isEmpty()
                 ? ec2.describeImagesPaginator(baseRequest).images()
                 : describeByIds(imageIds, MISSING_IMAGE_CODES, ids -> ec2.describeImagesPaginator(baseRequest.toBuilder().imageIds(ids).build()).images());
-        return encodeRows(
-                images,
-                List.of(
-                        // populate row_id - to support DELETE
-                        o -> Slices.utf8Slice(((Image) o).imageId()),
-                        // populate instance_id - to support INSERT
-                        _ -> null));
+        return sdkRows(images);
     }
 
-    private static Iterable<List<?>> snapshots(Ec2Client ec2, AwsTable table, AwsTableHandle handle)
+    private static Iterable<SdkRow> snapshots(Ec2Client ec2, AwsTable table, AwsTableHandle handle)
     {
         FilterApplier filter = table.requireFilterApplier();
         List<String> snapshotIds = filter.getFilterValues(table.columnHandle("snapshot_id"), handle.constraint());
@@ -277,7 +279,7 @@ public class AwsTables
         Iterable<Snapshot> snapshots = snapshotIds.isEmpty()
                 ? ec2.describeSnapshotsPaginator(baseRequest).snapshots()
                 : describeByIds(snapshotIds, MISSING_SNAPSHOT_CODES, ids -> ec2.describeSnapshotsPaginator(baseRequest.toBuilder().snapshotIds(ids).build()).snapshots());
-        return encodeRows(snapshots, List.of());
+        return sdkRows(snapshots);
     }
 
     // the ID request parameters are much faster than the ID filters, which make AWS check all public images or snapshots without an owner,
@@ -303,7 +305,7 @@ public class AwsTables
         return owners;
     }
 
-    private static Iterable<List<?>> instances(Ec2Client ec2, AwsTable table, AwsTableHandle handle)
+    private static Iterable<SdkRow> instances(Ec2Client ec2, AwsTable table, AwsTableHandle handle)
     {
         List<String> instanceIds = table.requireFilterApplier().getFilterValues(table.columnHandle("instance_id"), handle.constraint());
         DescribeInstancesRequest.Builder request = DescribeInstancesRequest.builder();
@@ -312,13 +314,7 @@ public class AwsTables
             request.filters(Filter.builder().name("instance-id").values(instanceIds).build());
         }
         Iterable<Reservation> reservations = ec2.describeInstancesPaginator(request.build()).reservations();
-        int stateNameIndex = Iterables.indexOf(table.columns(), column -> column.getName().equals(STATE_NAME));
-        return Iterables.transform(
-                Iterables.concat(Iterables.transform(reservations, Reservation::instances)),
-                instance -> withValueAt(
-                        encodeRow(instance, List.of(o -> Slices.utf8Slice(((Instance) o).instanceId()))),
-                        stateNameIndex,
-                        stateName(instance)));
+        return sdkRows(Iterables.concat(Iterables.transform(reservations, Reservation::instances)));
     }
 
     private static Slice stateName(Instance instance)
@@ -326,25 +322,7 @@ public class AwsTables
         if (instance.state() == null || instance.state().name() == null) {
             return null;
         }
-        return Slices.utf8Slice(instance.state().nameAsString());
-    }
-
-    private static List<ColumnMetadata> withColumnAfter(List<ColumnMetadata> columns, String columnName, ColumnMetadata column)
-    {
-        int index = Iterables.indexOf(columns, existing -> existing.getName().equals(columnName));
-        checkArgument(index >= 0, "Column %s does not exist", columnName);
-        return ImmutableList.<ColumnMetadata>builder()
-                .addAll(columns.subList(0, index + 1))
-                .add(column)
-                .addAll(columns.subList(index + 1, columns.size()))
-                .build();
-    }
-
-    private static List<?> withValueAt(List<?> row, int index, Object value)
-    {
-        List<Object> values = new ArrayList<>(row);
-        values.add(index, value);
-        return unmodifiableList(values);
+        return utf8Slice(instance.state().nameAsString());
     }
 
     // tags are set using tag specifications, which also require the type of the created resource
@@ -417,8 +395,8 @@ public class AwsTables
         }
     }
 
-    private static <T extends SdkPojo> Iterable<List<?>> encodeRows(Iterable<T> objects, List<Function<SdkPojo, Object>> prependValues)
+    private static Iterable<SdkRow> sdkRows(Iterable<? extends SdkPojo> objects)
     {
-        return Iterables.transform(objects, object -> encodeRow(object, prependValues));
+        return Iterables.transform(objects, SdkRow::new);
     }
 }

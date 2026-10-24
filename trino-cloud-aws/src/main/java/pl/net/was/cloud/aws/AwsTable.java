@@ -22,6 +22,7 @@ import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.type.Type;
+import pl.net.was.cloud.aws.SdkRowEncoder.ColumnWriter;
 import pl.net.was.cloud.aws.filters.FilterApplier;
 import software.amazon.awssdk.awscore.AwsRequest;
 import software.amazon.awssdk.core.exception.SdkException;
@@ -47,6 +48,7 @@ public final class AwsTable
     private final SchemaTableName name;
     private final List<ColumnMetadata> columns;
     private final Map<String, ColumnHandle> columnHandles;
+    private final Map<String, ColumnWriter> columnWriters;
     private final RowSource rowSource;
     private final Optional<FilterApplier> filterApplier;
     private final Optional<String> primaryKey;
@@ -57,9 +59,16 @@ public final class AwsTable
     private AwsTable(Builder builder)
     {
         this.name = requireNonNull(builder.name, "name is null");
-        this.columns = ImmutableList.copyOf(requireNonNull(builder.columns, "columns is null"));
+        requireNonNull(builder.columns, "columns is null");
+        this.columns = ImmutableList.copyOf(builder.columns.columnMetadata());
         this.columnHandles = columns.stream()
                 .collect(toImmutableMap(ColumnMetadata::getName, column -> new AwsColumnHandle(column.getName(), column.getType())));
+        List<ColumnWriter> writers = builder.columns.columnWriters();
+        ImmutableMap.Builder<String, ColumnWriter> columnWriters = ImmutableMap.builder();
+        for (int i = 0; i < columns.size(); i++) {
+            columnWriters.put(columns.get(i).getName(), writers.get(i));
+        }
+        this.columnWriters = columnWriters.buildOrThrow();
         this.rowSource = requireNonNull(builder.rowSource, "rowSource is null");
         this.filterApplier = Optional.ofNullable(builder.filterApplier);
         this.primaryKey = Optional.ofNullable(builder.primaryKey);
@@ -73,7 +82,7 @@ public final class AwsTable
         updater.ifPresent(value -> value.columns().forEach(column -> checkArgument(columnHandles.containsKey(column), "Updated column %s does not exist in %s", column, name)));
     }
 
-    public static Builder builder(SchemaTableName name, List<ColumnMetadata> columns)
+    public static Builder builder(SchemaTableName name, SdkTableColumns columns)
     {
         return new Builder(name, columns);
     }
@@ -100,6 +109,13 @@ public final class AwsTable
         return (AwsColumnHandle) column;
     }
 
+    public ColumnWriter columnWriter(AwsColumnHandle column)
+    {
+        ColumnWriter writer = columnWriters.get(column.name());
+        checkArgument(writer != null, "Column %s does not exist in %s", column.name(), name);
+        return writer;
+    }
+
     public Optional<AwsColumnHandle> rowIdColumn()
     {
         return Optional.ofNullable((AwsColumnHandle) columnHandles.get(ROW_ID));
@@ -110,7 +126,7 @@ public final class AwsTable
         return primaryKey.map(this::columnHandle);
     }
 
-    public Iterable<List<?>> rows(AwsTableHandle table)
+    public Iterable<SdkRow> rows(AwsTableHandle table)
     {
         try {
             return translateErrors(rowSource.rows(this, table));
@@ -154,7 +170,7 @@ public final class AwsTable
     @FunctionalInterface
     public interface RowSource
     {
-        Iterable<List<?>> rows(AwsTable table, AwsTableHandle handle);
+        Iterable<SdkRow> rows(AwsTable table, AwsTableHandle handle);
     }
 
     /**
@@ -206,7 +222,7 @@ public final class AwsTable
     public static final class Builder
     {
         private final SchemaTableName name;
-        private final List<ColumnMetadata> columns;
+        private final SdkTableColumns columns;
         private RowSource rowSource;
         private FilterApplier filterApplier;
         private String primaryKey;
@@ -214,7 +230,7 @@ public final class AwsTable
         private Updater updater;
         private Deleter deleter;
 
-        private Builder(SchemaTableName name, List<ColumnMetadata> columns)
+        private Builder(SchemaTableName name, SdkTableColumns columns)
         {
             this.name = requireNonNull(name, "name is null");
             this.columns = requireNonNull(columns, "columns is null");

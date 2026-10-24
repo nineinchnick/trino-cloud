@@ -96,7 +96,7 @@ final class TestSdkColumns
     @Test
     void testDuplicateColumnNames()
     {
-        assertThatThrownBy(() -> SdkColumns.columns(List.of(new ColumnMetadata("instance_id", VARCHAR)), Instance.builder().sdkFields()))
+        assertThatThrownBy(() -> SdkTableColumns.builder(Instance.builder().sdkFields()).prepend(new ColumnMetadata("instance_id", VARCHAR), _ -> null).build())
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageStartingWith("More than one field is mapped to instance_id in [instance_id, ");
     }

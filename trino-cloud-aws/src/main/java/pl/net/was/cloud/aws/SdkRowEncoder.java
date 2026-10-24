@@ -35,7 +35,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
-import java.util.stream.Stream;
 
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
@@ -47,7 +46,7 @@ import static io.trino.spi.type.SmallintType.SMALLINT;
 import static io.trino.spi.type.TimeZoneKey.UTC_KEY;
 import static io.trino.spi.type.TimestampWithTimeZoneType.TIMESTAMP_TZ_MILLIS;
 import static io.trino.spi.type.TinyintType.TINYINT;
-import static io.trino.spi.type.TypeUtils.readNativeValue;
+import static io.trino.spi.type.TypeUtils.writeNativeValue;
 import static io.trino.spi.type.VarbinaryType.VARBINARY;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static pl.net.was.cloud.aws.SdkColumns.mappedFields;
@@ -56,42 +55,21 @@ final class SdkRowEncoder
 {
     private SdkRowEncoder() {}
 
-    public static Iterable<List<?>> encodeRows(List<? extends SdkPojo> objects)
+    /**
+     * Returns a writer of the value of the field of the SDK object, in the type returned by {@link SdkColumns#type(SdkField)}.
+     */
+    public static ColumnWriter fieldWriter(SdkField<?> field)
     {
-        return objects
-                .stream()
-                .<List<?>>map(r -> encodeRow(r, List.of()))
-                .toList();
-    }
-
-    public static Iterable<List<?>> encodeRows(List<? extends SdkPojo> objects, List<Function<SdkPojo, Object>> prependValues)
-    {
-        return objects
-                .stream()
-                .<List<?>>map(r -> encodeRow(r, prependValues))
-                .toList();
-    }
-
-    public static List<?> encodeRow(SdkPojo o, List<Function<SdkPojo, Object>> prependValues)
-    {
-        return Stream.concat(
-                        prependValues
-                                .stream()
-                                .map(f -> f.apply(o)),
-                        mappedFields(o.sdkFields())
-                                .stream()
-                                .map(f -> encodeValue(SdkColumns.type(f), f.getValueOrDefault(o))))
-                .toList();
+        Type type = SdkColumns.type(field);
+        return (row, output) -> writeValue(type, output, field.getValueOrDefault(row.object()));
     }
 
     /**
-     * Returns the value in the Trino native representation of the type, as returned by {@link SdkColumns#type(SdkField)}.
+     * Returns a writer of a value computed from the row, which must be in the Trino native representation of the type.
      */
-    public static Object encodeValue(Type type, Object value)
+    public static ColumnWriter derivedWriter(Type type, Function<SdkRow, Object> value)
     {
-        BlockBuilder output = type.createBlockBuilder(null, 1);
-        writeValue(type, output, value);
-        return readNativeValue(type, output.build(), 0);
+        return (row, output) -> writeNativeValue(type, output, value.apply(row));
     }
 
     /**
@@ -144,6 +122,15 @@ final class SdkRowEncoder
             case MapType mapType -> writeMap(mapType, (Map<?, ?>) value, (MapBlockBuilder) output);
             default -> throw new IllegalArgumentException("Unsupported type %s for value %s".formatted(type, value));
         }
+    }
+
+    /**
+     * Writes the value of one column of a row into the output.
+     */
+    @FunctionalInterface
+    public interface ColumnWriter
+    {
+        void write(SdkRow row, BlockBuilder output);
     }
 
     private static void writeObject(RowType rowType, SdkPojo object, List<BlockBuilder> fieldBuilders)

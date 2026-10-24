@@ -566,15 +566,17 @@ To add a new table that can be read from:
    Columns are derived from the SDK model fields, see [Type mapping](#type-mapping).
    If a name is split in the wrong place, or two fields would end up with the same column name, which fails creating the catalog,
    add the mixed-case word to `WORDS` in [SdkColumns](src/main/java/pl/net/was/cloud/aws/SdkColumns.java).
-2. Otherwise, use `AwsTable.builder(name, columns)` and set a `rowSource`, which generates rows for a table handle.
-   Use `SdkColumns.columns(extraColumns, sdkFields)` to add columns that aren't in the SDK model,
-   and populate them in the row source. See the `ec2.instances` definition, which adds `row_id` and `state_name`.
+2. Otherwise, use `AwsTable.builder(name, SdkTableColumns.builder(sdkFields)...build())` and set a `rowSource`,
+   which returns the SDK model objects for a table handle.
+   To add columns that aren't in the SDK model, use `prepend` or `insertAfter` on the `SdkTableColumns` builder,
+   with a function that computes the value from the SDK object. See the `ec2.instances` definition, which adds `row_id` and `state_name`.
 3. Add the table to the [Tables](#tables) section of this README.
    `TestAwsDocumentation` fails if a table is missing from it.
 4. Profit!
 
 > Note: if the corresponding API method requires predicates that don't map to any field in the response,
-> add an extra column, set a `filterApplier` that supports it, and populate the column from the predicate in the row source.
+> add an extra column, set a `filterApplier` that supports it, and pass the value from the predicate as the context of the rows,
+> so the column can be computed with `SdkRow::context`.
 > See the S3 `bucketTable` definitions.
 
 ## INSERT support
@@ -585,11 +587,11 @@ Inserting a column that doesn't have a matching field in the request fails.
 For columns that map to request fields with a different name or type, like `tags`, add a column setter to the inserter.
 
 > Note: if the corresponding API method requires values for fields that don't map to any column,
-> add extra columns, and populate them with nulls in the row source.
+> add extra columns that always return `NULL`, like the `instance_id` column of `ec2.images`.
 
 ## UPDATE and DELETE support
 
-1. Add a hidden `row_id` column to the table columns, and populate it with a unique identifier in the row source.
+1. Prepend a hidden `row_id` column with a unique identifier of the resource.
    See the `ec2.instances` definition.
 1. Set the `primaryKey` column, which `UPDATE` and `DELETE` statements must filter on, so the filter applier must support it.
 1. Set an `updater` and/or a `deleter` on the table definition. They receive the row ID, and the updater also receives the values of the updated columns.
