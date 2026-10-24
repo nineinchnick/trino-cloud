@@ -16,12 +16,14 @@ package pl.net.was.cloud.aws;
 
 import io.trino.sql.planner.plan.FilterNode;
 import io.trino.testing.AbstractTestQueryFramework;
+import io.trino.testing.MaterializedResult;
 import io.trino.testing.QueryRunner;
 import io.trino.testing.containers.Floci;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
+import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
 import static pl.net.was.cloud.aws.AwsErrorCode.AWS_MISSING_PREDICATE;
@@ -421,6 +423,16 @@ final class TestAwsConnectorEmulator
         assertQuery(
                 "SELECT count(*) FROM (SELECT key FROM aws.s3.objects WHERE bucket_name = '%s' LIMIT 10)".formatted(MANY_OBJECTS_BUCKET),
                 "VALUES 10");
+    }
+
+    @Test
+    void testSingleColumnOfObjectsSpanningManyPages()
+    {
+        MaterializedResult keys = computeActual("SELECT key FROM aws.s3.objects WHERE bucket_name = '%s'".formatted(MANY_OBJECTS_BUCKET));
+
+        assertThat(keys.getTypes()).containsExactly(VARCHAR);
+        assertThat(keys.getRowCount()).isEqualTo(MANY_OBJECTS_LIVE_COUNT);
+        assertThat(keys.getOnlyColumnAsSet()).hasSize(MANY_OBJECTS_LIVE_COUNT);
     }
 
     @Test
