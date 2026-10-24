@@ -16,12 +16,25 @@ package pl.net.was.cloud.aws.filters;
 
 import com.google.common.collect.ImmutableMap;
 
+import java.util.List;
 import java.util.Map;
-import java.util.Set;
+import java.util.function.Supplier;
+
+import static java.util.Objects.requireNonNull;
 
 public class BucketFilter
         implements FilterApplier
 {
+    private final Supplier<List<String>> bucketNames;
+
+    /**
+     * The buckets are only listed for scans without a filter on the bucket name, because listing them requires an AWS request.
+     */
+    public BucketFilter(Supplier<List<String>> bucketNames)
+    {
+        this.bucketNames = requireNonNull(bucketNames, "bucketNames is null");
+    }
+
     @Override
     public Map<String, FilterType> getSupportedFilters()
     {
@@ -29,16 +42,17 @@ public class BucketFilter
                 "bucket_name", FilterType.EQUAL);
     }
 
-    @Override
-    public Set<String> getRequiredFilters()
-    {
-        return Set.of("bucket_name");
-    }
-
     // every bucket is listed by a separate request
     @Override
     public Map<String, Integer> getSplitBatchSizes()
     {
         return Map.of("bucket_name", 1);
+    }
+
+    // the listed buckets are only the buckets owned by the account, but a filter can choose buckets of other accounts that grant access to them
+    @Override
+    public Map<String, Supplier<List<String>>> getDefaultValues()
+    {
+        return Map.of("bucket_name", bucketNames);
     }
 }

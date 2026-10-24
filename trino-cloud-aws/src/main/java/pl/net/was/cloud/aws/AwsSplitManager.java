@@ -82,12 +82,14 @@ public class AwsSplitManager
         }
         Map<ColumnHandle, Domain> domains = constraint.getDomains().get();
         Map<String, Supplier<List<String>>> knownValues = filterApplier.getKnownValues();
+        Map<String, Supplier<List<String>>> defaultValues = filterApplier.getDefaultValues();
         List<List<TupleDomain<ColumnHandle>>> columnBatches = filterApplier.getSplitBatchSizes().entrySet().stream()
                 .map(batchSize -> columnBatches(
                         table.columnHandle(batchSize.getKey()),
                         batchSize.getValue(),
                         Optional.ofNullable(domains.get(table.columnHandle(batchSize.getKey()))),
-                        Optional.ofNullable(knownValues.get(batchSize.getKey()))))
+                        Optional.ofNullable(knownValues.get(batchSize.getKey())),
+                        Optional.ofNullable(defaultValues.get(batchSize.getKey()))))
                 .collect(toImmutableList());
         return Lists.cartesianProduct(columnBatches).stream()
                 .map(batches -> new AwsConnectorSplit(batches.stream().reduce(TupleDomain.all(), TupleDomain::intersect)))
@@ -95,12 +97,18 @@ public class AwsSplitManager
     }
 
     // a column that doesn't divide the scan has a single batch without a constraint
-    private static List<TupleDomain<ColumnHandle>> columnBatches(AwsColumnHandle column, int batchSize, Optional<Domain> filteredDomain, Optional<Supplier<List<String>>> knownValues)
+    private static List<TupleDomain<ColumnHandle>> columnBatches(
+            AwsColumnHandle column,
+            int batchSize,
+            Optional<Domain> filteredDomain,
+            Optional<Supplier<List<String>>> knownValues,
+            Optional<Supplier<List<String>>> defaultValues)
     {
-        Optional<Domain> domain = knownValues
-                .map(values -> knownDomain(column, values.get()))
-                .map(knownDomain -> filteredDomain.map(knownDomain::intersect).orElse(knownDomain))
-                .or(() -> filteredDomain);
+        Optional<Domain> domain = filteredDomain
+                .map(filtered -> knownValues
+                        .map(values -> knownDomain(column, values.get()).intersect(filtered))
+                        .orElse(filtered))
+                .or(() -> knownValues.or(() -> defaultValues).map(values -> knownDomain(column, values.get())));
         if (domain.isPresent() && domain.get().isNone()) {
             return ImmutableList.of();
         }

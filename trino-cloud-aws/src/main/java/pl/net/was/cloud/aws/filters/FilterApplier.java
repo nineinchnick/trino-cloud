@@ -98,6 +98,16 @@ public interface FilterApplier
         return Map.of();
     }
 
+    /**
+     * Values read by scans without a filter on a varchar column with a split batch size, for columns that choose where rows are read from.
+     * Unlike known values, they don't restrict the filter values, because they might not include every value that can be read.
+     * The values are only listed for scans without a filter on the column, because listing them can require an AWS request.
+     */
+    default Map<String, Supplier<List<String>>> getDefaultValues()
+    {
+        return Map.of();
+    }
+
     default Optional<ConstraintApplicationResult<ConnectorTableHandle>> applyFilter(
             AwsTableHandle table,
             Map<String, ColumnHandle> columns,
