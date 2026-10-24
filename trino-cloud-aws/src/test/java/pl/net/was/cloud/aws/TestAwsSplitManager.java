@@ -19,6 +19,7 @@ import io.airlift.slice.Slice;
 import io.airlift.slice.Slices;
 import io.opentelemetry.api.OpenTelemetry;
 import io.trino.spi.connector.ColumnHandle;
+import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.ConnectorSplit;
 import io.trino.spi.connector.ConnectorSplitSource;
 import io.trino.spi.connector.Constraint;
@@ -30,10 +31,12 @@ import io.trino.testing.TestingConnectorSession;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import pl.net.was.cloud.aws.filters.BucketFilter;
 import pl.net.was.cloud.aws.filters.FilterApplier;
 import pl.net.was.cloud.aws.filters.FilterType;
 import software.amazon.awssdk.services.ec2.model.Vpc;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.S3Object;
 
 import java.util.List;
 import java.util.Map;
@@ -137,6 +140,34 @@ final class TestAwsSplitManager
     }
 
     @Test
+    void testSplitPerListedBucketWithoutFilter()
+    {
+        assertThat(bucketSplits(() -> List.of("a", "b", "c"), Map.of()))
+                .containsExactly(
+                        Map.of("bucket_name", List.of("a")),
+                        Map.of("bucket_name", List.of("b")),
+                        Map.of("bucket_name", List.of("c")));
+        assertThat(bucketSplits(List::of, Map.of()))
+                .isEmpty();
+    }
+
+    // buckets of other accounts are not listed, but can be read, so filters are not limited to the listed buckets
+    @Test
+    void testBucketsNotListedWithFilter()
+    {
+        Supplier<List<String>> failingBucketNames = () -> {
+            throw new AssertionError("Buckets must not be listed for scans with a filter on the bucket name");
+        };
+
+        assertThat(bucketSplits(failingBucketNames, Map.of("bucket_name", List.of("other-account-bucket"))))
+                .containsExactly(Map.of());
+        assertThat(bucketSplits(failingBucketNames, Map.of("bucket_name", List.of("a", "other-account-bucket"))))
+                .containsExactly(
+                        Map.of("bucket_name", List.of("a")),
+                        Map.of("bucket_name", List.of("other-account-bucket")));
+    }
+
+    @Test
     void testNoSplittingOfNullableDomains()
     {
         AwsColumnHandle bucketName = new AwsColumnHandle("bucket_name", VARCHAR);
@@ -204,6 +235,25 @@ final class TestAwsSplitManager
                 .rowSource((_, _) -> List.of())
                 .filterApplier(filterApplier)
                 .build();
+        return filteredSplits(table, filterApplier, filters);
+    }
+
+    private static List<Map<String, List<String>>> bucketSplits(Supplier<List<String>> bucketNames, Map<String, List<String>> filters)
+    {
+        BucketFilter filterApplier = new BucketFilter(bucketNames);
+        AwsTable table = AwsTable.builder(
+                        new SchemaTableName("test", "objects"),
+                        SdkTableColumns.builder(S3Object.builder().sdkFields())
+                                .prepend(new ColumnMetadata("bucket_name", VARCHAR), SdkRow::context)
+                                .build())
+                .rowSource((_, _) -> List.of())
+                .filterApplier(filterApplier)
+                .build();
+        return filteredSplits(table, filterApplier, filters);
+    }
+
+    private static List<Map<String, List<String>>> filteredSplits(AwsTable table, FilterApplier filterApplier, Map<String, List<String>> filters)
+    {
         ImmutableMap.Builder<ColumnHandle, Domain> domains = ImmutableMap.builder();
         filters.forEach((column, values) -> domains.put(table.columnHandle(column), Domain.multipleValues(VARCHAR, values.stream().map(Slices::utf8Slice).toList())));
         return AwsSplitManager.splits(table, filterApplier, TupleDomain.withColumnDomains(domains.buildOrThrow())).stream()

@@ -20,6 +20,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Streams;
 import com.google.inject.Inject;
 import io.airlift.slice.Slice;
 import io.trino.spi.TrinoException;
@@ -102,6 +103,7 @@ import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.airlift.slice.Slices.utf8Slice;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
@@ -126,6 +128,7 @@ public class AwsTables
 
     private final Ec2Clients ec2Clients;
     private final RegionFilter regionFilter;
+    private final BucketFilter bucketFilter;
     private final Map<SchemaTableName, AwsTable> tables;
 
     @Inject
@@ -136,6 +139,7 @@ public class AwsTables
         // resources are created in the default region, but changed and removed in the region of the row
         Ec2Client ec2 = ec2Clients.defaultClient();
         requireNonNull(s3, "s3 is null");
+        this.bucketFilter = new BucketFilter(() -> bucketNames(s3));
         this.tables = Stream.of(
                         simpleRegionalTable("availability_zones", AvailabilityZone.builder().sdkFields(), client -> client.describeAvailabilityZones().availabilityZones()),
                         regionalTable(
@@ -320,7 +324,10 @@ public class AwsTables
         return utf8Slice(new RegionalRowId(((Slice) row.context()).toStringUtf8(), id).toString());
     }
 
-    private static AwsTable bucketTable(String table, List<SdkField<?>> sdkFields, Function<String, Iterable<? extends SdkPojo>> rows)
+    /**
+     * Every bucket is listed in a separate split, and scans without a filter on the bucket name list all buckets owned by the account.
+     */
+    private AwsTable bucketTable(String table, List<SdkField<?>> sdkFields, Function<String, Iterable<? extends SdkPojo>> rows)
     {
         return AwsTable.builder(
                         new SchemaTableName("s3", table),
@@ -328,7 +335,6 @@ public class AwsTables
                                 .prepend(new ColumnMetadata("bucket_name", VARCHAR), SdkRow::context)
                                 .build())
                 .rowSource((awsTable, handle) -> {
-                    awsTable.requireFilterApplier().checkRequiredFilters(handle);
                     List<String> bucketNames = awsTable.requireFilterApplier().getFilterValues(awsTable.columnHandle("bucket_name"), handle.constraint());
                     return Iterables.concat(Lists.transform(
                             bucketNames,
@@ -337,8 +343,21 @@ public class AwsTables
                                 return Iterables.transform(rows.apply(bucketName), object -> new SdkRow(object, context));
                             }));
                 })
-                .filterApplier(new BucketFilter())
+                .filterApplier(bucketFilter)
                 .build();
+    }
+
+    // the split manager lists the buckets on the coordinator, outside of the row sources, which translate the errors of AWS requests
+    private static List<String> bucketNames(S3Client s3)
+    {
+        try {
+            return Streams.stream(s3.listBucketsPaginator(ListBucketsRequest.builder().build()).buckets())
+                    .map(Bucket::name)
+                    .collect(toImmutableList());
+        }
+        catch (SdkException e) {
+            throw AwsErrors.translate(e);
+        }
     }
 
     private static ColumnMetadata rowIdColumn()

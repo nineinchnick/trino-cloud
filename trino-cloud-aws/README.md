@@ -123,7 +123,10 @@ connector can't change anything, even if writes are enabled by mistake:
 
 To limit the buckets that can be listed, replace the `Resource` of the `ListS3`
 statement with bucket ARNs, like `arn:aws:s3:::my-bucket`, and move
-`s3:ListAllMyBuckets` to a statement with `"Resource": "*"`.
+`s3:ListAllMyBuckets` to a statement with `"Resource": "*"`. Queries of the
+`s3` object tables without a filter on `bucket_name` list objects in all buckets
+owned by the account, so they fail with the `PERMISSION_DENIED` error code when
+some of these buckets can't be listed.
 
 To use the statements described in [SQL support](#sql-support) with `aws.read-only=false`,
 the IAM identity also needs the permissions to call the following AWS API
@@ -310,8 +313,8 @@ Some tables have columns that differ from the SDK model:
   sets the instance to create the image from when inserting. Its comment, shown
   by `DESCRIBE` and in `information_schema.columns`, says so.
 - The `bucket_name` column of the `s3.objects`, `s3.object_versions` and
-  `s3.deleted_objects` tables is the name of the listed bucket, taken from the
-  required filter.
+  `s3.deleted_objects` tables is the name of the bucket the object is listed
+  from.
 
 # Tables
 
@@ -332,7 +335,8 @@ without it. The comments of these columns, shown by `DESCRIBE` and in
 
 When a pushed-down `IN` predicate lists more values than a single AWS request
 accepts, the scan is divided into splits that run in parallel on multiple
-workers: one split per bucket for the `s3` object tables, and one split per batch
+workers: one split per bucket for the `s3` object tables, also when they're
+not filtered on `bucket_name`, and one split per batch
 of 100 instance, image or snapshot IDs. Regional tables are also read in a
 separate split for every region, and for every batch of IDs in each region.
 
@@ -397,12 +401,19 @@ WHERE owner_id = '137112412989' AND name LIKE 'al2023-ami-2023%';
 The tables in the `s3` schema list buckets in all regions, and access each
 bucket in its own region.
 
+Without a filter on `bucket_name`, the `s3.objects`, `s3.object_versions` and
+`s3.deleted_objects` tables list objects in all buckets owned by the account,
+in a separate split for every bucket. Listing all objects can take a long time
+and many AWS requests, so filter on `bucket_name` when possible. A filter on
+`bucket_name` can also choose buckets of other accounts that grant access to
+them.
+
 | Table                | Description                                     | Required filters | Pushed-down filters | Supported writes |
 |----------------------|-------------------------------------------------|------------------|---------------------|------------------|
 | `s3.buckets`         | Buckets owned by the account                    |                  |                     | `INSERT`         |
-| `s3.objects`         | Current versions of objects in a bucket         | `bucket_name`    | `bucket_name`       |                  |
-| `s3.object_versions` | All versions of objects in a bucket             | `bucket_name`    | `bucket_name`       |                  |
-| `s3.deleted_objects` | Delete markers of objects in a versioned bucket | `bucket_name`    | `bucket_name`       |                  |
+| `s3.objects`         | Current versions of objects in a bucket         |                  | `bucket_name`       |                  |
+| `s3.object_versions` | All versions of objects in a bucket             |                  | `bucket_name`       |                  |
+| `s3.deleted_objects` | Delete markers of objects in a versioned bucket |                  | `bucket_name`       |                  |
 
 For example, to list the largest objects in a bucket:
 

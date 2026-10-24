@@ -29,7 +29,6 @@ import static com.google.common.collect.MoreCollectors.onlyElement;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
-import static pl.net.was.cloud.aws.AwsErrorCode.AWS_MISSING_PREDICATE;
 import static pl.net.was.cloud.aws.EmulatorTestData.IMAGE_ID;
 import static pl.net.was.cloud.aws.EmulatorTestData.IMAGE_OWNER_ID;
 import static pl.net.was.cloud.aws.EmulatorTestData.INSTANCE_TYPE;
@@ -48,7 +47,7 @@ final class TestAwsConnectorEmulator
     private static final String IMAGE_NAME = "amzn2-ami-hvm-2.0.20230404.0-x86_64-gp2";
     // Floci doesn't support DescribePlacementGroups, DescribePublicIpv4Pools and DescribeVpnConnections,
     // so placement_groups, public_ipv4_pools and vpn_connections are only covered by TestAwsQueriesRealAccount
-    private static final List<String> EC2_TABLES_WITHOUT_REQUIRED_FILTERS = List.of(
+    private static final List<String> EC2_TABLES = List.of(
             "availability_zones",
             "images",
             "instance_types",
@@ -102,15 +101,15 @@ final class TestAwsConnectorEmulator
     @Test
     void testSelectAllColumns()
     {
-        for (String table : EC2_TABLES_WITHOUT_REQUIRED_FILTERS) {
+        for (String table : EC2_TABLES) {
             assertThat(query("SELECT * FROM aws.ec2." + table))
                     .as(table)
                     .succeeds();
         }
         assertThat(query("SELECT * FROM aws.s3.buckets")).succeeds();
-        assertThat(query("SELECT * FROM aws.s3.objects WHERE bucket_name = '%s'".formatted(OBJECTS_BUCKET))).succeeds();
-        assertThat(query("SELECT * FROM aws.s3.object_versions WHERE bucket_name = '%s'".formatted(VERSIONED_BUCKET))).succeeds();
-        assertThat(query("SELECT * FROM aws.s3.deleted_objects WHERE bucket_name = '%s'".formatted(VERSIONED_BUCKET))).succeeds();
+        assertThat(query("SELECT * FROM aws.s3.objects")).succeeds();
+        assertThat(query("SELECT * FROM aws.s3.object_versions")).succeeds();
+        assertThat(query("SELECT * FROM aws.s3.deleted_objects")).succeeds();
     }
 
     @Test
@@ -514,14 +513,28 @@ final class TestAwsConnectorEmulator
     }
 
     @Test
-    void testObjectsRequireBucketName()
+    void testObjectsInAllBuckets()
     {
-        assertMissingBucketName("SELECT * FROM aws.s3.objects", "s3.objects");
-        assertMissingBucketName("SELECT * FROM aws.s3.object_versions", "s3.object_versions");
-        assertMissingBucketName("SELECT * FROM aws.s3.deleted_objects", "s3.deleted_objects");
-        assertMissingBucketName("SELECT count(*) FROM aws.s3.objects WHERE size > 0", "s3.objects");
-        assertMissingBucketName("SELECT * FROM aws.s3.objects WHERE bucket_name IS NULL", "s3.objects");
-        assertMissingBucketName("SELECT * FROM aws.s3.objects WHERE bucket_name = '%s' OR bucket_name IS NULL".formatted(OBJECTS_BUCKET), "s3.objects");
+        String sql = "SELECT bucket_name, count(*) FROM aws.s3.objects GROUP BY bucket_name";
+        assertQuery(sql, "VALUES ('%s', 2), ('%s', 1), ('%s', %s)".formatted(OBJECTS_BUCKET, VERSIONED_BUCKET, MANY_OBJECTS_BUCKET, MANY_OBJECTS_LIVE_COUNT));
+        assertSplitCount(sql, 3);
+        assertQuery(
+                "SELECT bucket_name, count(*) FROM aws.s3.object_versions GROUP BY bucket_name",
+                "VALUES ('%s', 2), ('%s', 3), ('%s', %s)".formatted(OBJECTS_BUCKET, VERSIONED_BUCKET, MANY_OBJECTS_BUCKET, MANY_OBJECTS_LIVE_COUNT + MANY_OBJECTS_DELETED_COUNT));
+        assertQuery(
+                "SELECT bucket_name, count(*) FROM aws.s3.deleted_objects GROUP BY bucket_name",
+                "VALUES ('%s', 1), ('%s', %s)".formatted(VERSIONED_BUCKET, MANY_OBJECTS_BUCKET, MANY_OBJECTS_DELETED_COUNT));
+    }
+
+    // predicates on the bucket name that allow NULL are not pushed down, so all buckets are listed, and Trino applies the predicates
+    @Test
+    void testObjectsWithBucketNameFiltersNotPushedDown()
+    {
+        assertQuery("SELECT count(*) FROM aws.s3.objects WHERE size > 0", "VALUES %s".formatted(3 + MANY_OBJECTS_LIVE_COUNT));
+        assertQueryReturnsEmptyResult("SELECT * FROM aws.s3.objects WHERE bucket_name IS NULL");
+        assertQuery(
+                "SELECT key FROM aws.s3.objects WHERE bucket_name = '%s' OR bucket_name IS NULL".formatted(OBJECTS_BUCKET),
+                "VALUES 'a.txt', 'dir/b.txt'");
     }
 
     @Test
@@ -529,7 +542,6 @@ final class TestAwsConnectorEmulator
     {
         assertThat(columnComment("ec2", "images", "instance_id")).isEqualTo("Only used by INSERT, always NULL when reading");
         assertThat(columnComment("ec2", "images", "image_id")).isEqualTo("");
-        assertThat(columnComment("s3", "objects", "bucket_name")).isEqualTo("Required filter: use = or IN");
         assertQuery(
                 "SELECT comment FROM aws.information_schema.columns WHERE table_schema = 'ec2' AND table_name = 'images' AND column_name = 'instance_id'",
                 "VALUES 'Only used by INSERT, always NULL when reading'");
@@ -543,13 +555,6 @@ final class TestAwsConnectorEmulator
         assertThat(query("EXPLAIN SELECT * FROM aws.s3.objects")).succeeds();
         assertQueryReturnsEmptyResult("SELECT * FROM aws.s3.objects LIMIT 0");
         assertQueryReturnsEmptyResult("SELECT * FROM aws.s3.objects WHERE false");
-    }
-
-    private void assertMissingBucketName(String sql, String table)
-    {
-        assertThat(query(sql)).failure()
-                .hasErrorCode(AWS_MISSING_PREDICATE)
-                .hasMessage("Missing required filter on %s.bucket_name. Add a condition like bucket_name = '...' or bucket_name IN ('...', '...') to the WHERE clause".formatted(table));
     }
 
     // DESCRIBE has the column name in the first field, and the comment in the last one
