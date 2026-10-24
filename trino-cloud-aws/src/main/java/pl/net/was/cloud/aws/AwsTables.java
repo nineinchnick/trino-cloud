@@ -44,11 +44,30 @@ import software.amazon.awssdk.services.ec2.model.AttributeValue;
 import software.amazon.awssdk.services.ec2.model.AvailabilityZone;
 import software.amazon.awssdk.services.ec2.model.CreateImageRequest;
 import software.amazon.awssdk.services.ec2.model.DeregisterImageRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeAvailabilityZonesRequest;
 import software.amazon.awssdk.services.ec2.model.DescribeImagesRequest;
 import software.amazon.awssdk.services.ec2.model.DescribeInstanceTypesRequest;
 import software.amazon.awssdk.services.ec2.model.DescribeInstancesRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeKeyPairsRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeLaunchTemplatesRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeNatGatewaysRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeNetworkInterfacesRequest;
+import software.amazon.awssdk.services.ec2.model.DescribePlacementGroupsRequest;
+import software.amazon.awssdk.services.ec2.model.DescribePrefixListsRequest;
 import software.amazon.awssdk.services.ec2.model.DescribePublicIpv4PoolsRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeRegionsRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeRouteTablesRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeSecurityGroupsRequest;
 import software.amazon.awssdk.services.ec2.model.DescribeSnapshotsRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeSubnetsRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeTagsRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeVolumesRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeVpcEndpointsRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeVpcPeeringConnectionsRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeVpcsRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeVpnConnectionsRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeVpnGatewaysRequest;
+import software.amazon.awssdk.services.ec2.model.Ec2Request;
 import software.amazon.awssdk.services.ec2.model.Filter;
 import software.amazon.awssdk.services.ec2.model.Image;
 import software.amazon.awssdk.services.ec2.model.Instance;
@@ -89,6 +108,7 @@ import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.utils.builder.SdkBuilder;
 
 import java.util.Collection;
 import java.util.List;
@@ -97,6 +117,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
@@ -137,7 +158,7 @@ public class AwsTables
         Ec2Client ec2 = ec2Clients.defaultClient();
         requireNonNull(s3, "s3 is null");
         this.tables = Stream.of(
-                        simpleRegionalTable("availability_zones", AvailabilityZone.builder().sdkFields(), client -> client.describeAvailabilityZones().availabilityZones()),
+                        simpleRegionalTable("availability_zones", AvailabilityZone.builder().sdkFields(), DescribeAvailabilityZonesRequest::builder, (client, request) -> client.describeAvailabilityZones(request).availabilityZones()),
                         regionalTable(
                                 "images",
                                 SdkTableColumns.builder(Image.builder().sdkFields())
@@ -151,7 +172,7 @@ public class AwsTables
                                 .inserter(regionalInserter(new Inserter(CreateImageRequest::builder, request -> List.of(ec2.createImage((CreateImageRequest) request).imageId()), tagsSetter(ResourceType.IMAGE))))
                                 .deleter(regionalDeleter((client, imageId) -> client.deregisterImage(DeregisterImageRequest.builder().imageId(imageId).build())))
                                 .build(),
-                        simpleRegionalTable("instance_types", InstanceTypeInfo.builder().sdkFields(), client -> client.describeInstanceTypesPaginator(DescribeInstanceTypesRequest.builder().build()).instanceTypes()),
+                        simpleRegionalTable("instance_types", InstanceTypeInfo.builder().sdkFields(), DescribeInstanceTypesRequest::builder, (client, request) -> client.describeInstanceTypesPaginator(request).instanceTypes()),
                         regionalTable(
                                 "instances",
                                 SdkTableColumns.builder(Instance.builder().sdkFields())
@@ -167,27 +188,27 @@ public class AwsTables
                                 .updater(regionalUpdater(ImmutableSet.of(STATE_NAME, "instance_type"), AwsTables::updateInstance))
                                 .deleter(regionalDeleter((client, instanceId) -> client.terminateInstances(TerminateInstancesRequest.builder().instanceIds(instanceId).build())))
                                 .build(),
-                        simpleRegionalTable("key_pairs", KeyPairInfo.builder().sdkFields(), client -> client.describeKeyPairs().keyPairs()),
-                        simpleRegionalTable("launch_templates", LaunchTemplate.builder().sdkFields(), client -> client.describeLaunchTemplatesPaginator().launchTemplates()),
-                        simpleRegionalTable("nat_gateways", NatGateway.builder().sdkFields(), client -> client.describeNatGatewaysPaginator().natGateways()),
-                        simpleRegionalTable("network_interfaces", NetworkInterface.builder().sdkFields(), client -> client.describeNetworkInterfacesPaginator().networkInterfaces()),
-                        simpleRegionalTable("placement_groups", PlacementGroup.builder().sdkFields(), client -> client.describePlacementGroups().placementGroups()),
-                        simpleRegionalTable("prefix_lists", PrefixList.builder().sdkFields(), client -> client.describePrefixListsPaginator().prefixLists()),
-                        simpleRegionalTable("public_ipv4_pools", PublicIpv4Pool.builder().sdkFields(), client -> client.describePublicIpv4PoolsPaginator(DescribePublicIpv4PoolsRequest.builder().build()).publicIpv4Pools()),
+                        simpleRegionalTable("key_pairs", KeyPairInfo.builder().sdkFields(), DescribeKeyPairsRequest::builder, (client, request) -> client.describeKeyPairs(request).keyPairs()),
+                        simpleRegionalTable("launch_templates", LaunchTemplate.builder().sdkFields(), DescribeLaunchTemplatesRequest::builder, (client, request) -> client.describeLaunchTemplatesPaginator(request).launchTemplates()),
+                        simpleRegionalTable("nat_gateways", NatGateway.builder().sdkFields(), DescribeNatGatewaysRequest::builder, (client, request) -> client.describeNatGatewaysPaginator(request).natGateways()),
+                        simpleRegionalTable("network_interfaces", NetworkInterface.builder().sdkFields(), DescribeNetworkInterfacesRequest::builder, (client, request) -> client.describeNetworkInterfacesPaginator(request).networkInterfaces()),
+                        simpleRegionalTable("placement_groups", PlacementGroup.builder().sdkFields(), DescribePlacementGroupsRequest::builder, (client, request) -> client.describePlacementGroups(request).placementGroups()),
+                        simpleRegionalTable("prefix_lists", PrefixList.builder().sdkFields(), DescribePrefixListsRequest::builder, (client, request) -> client.describePrefixListsPaginator(request).prefixLists()),
+                        simpleRegionalTable("public_ipv4_pools", PublicIpv4Pool.builder().sdkFields(), DescribePublicIpv4PoolsRequest::builder, (client, request) -> client.describePublicIpv4PoolsPaginator(request).publicIpv4Pools()),
                         // every region returns the same regions
-                        simpleTable("ec2", "regions", Region.builder().sdkFields(), () -> ec2.describeRegions().regions()),
-                        simpleRegionalTable("route_tables", RouteTable.builder().sdkFields(), client -> client.describeRouteTablesPaginator().routeTables()),
+                        simpleTable("ec2", "regions", Region.builder().sdkFields(), DescribeRegionsRequest::builder, request -> ec2.describeRegions(request).regions()),
+                        simpleRegionalTable("route_tables", RouteTable.builder().sdkFields(), DescribeRouteTablesRequest::builder, (client, request) -> client.describeRouteTablesPaginator(request).routeTables()),
                         regionalTable("snapshots", SdkTableColumns.builder(Snapshot.builder().sdkFields()), AwsTables::snapshots, new SnapshotFilter())
                                 .build(),
-                        simpleRegionalTable("security_groups", SecurityGroup.builder().sdkFields(), client -> client.describeSecurityGroupsPaginator().securityGroups()),
-                        simpleRegionalTable("subnets", Subnet.builder().sdkFields(), client -> client.describeSubnetsPaginator().subnets()),
-                        simpleRegionalTable("tags", TagDescription.builder().sdkFields(), client -> client.describeTagsPaginator().tags()),
-                        simpleRegionalTable("volumes", Volume.builder().sdkFields(), client -> client.describeVolumesPaginator().volumes()),
-                        simpleRegionalTable("vpc_endpoints", VpcEndpoint.builder().sdkFields(), client -> client.describeVpcEndpointsPaginator().vpcEndpoints()),
-                        simpleRegionalTable("vpc_peering_connections", VpcPeeringConnection.builder().sdkFields(), client -> client.describeVpcPeeringConnectionsPaginator().vpcPeeringConnections()),
-                        simpleRegionalTable("vpcs", Vpc.builder().sdkFields(), client -> client.describeVpcsPaginator().vpcs()),
-                        simpleRegionalTable("vpn_connections", VpnConnection.builder().sdkFields(), client -> client.describeVpnConnections().vpnConnections()),
-                        simpleRegionalTable("vpn_gateways", VpnGateway.builder().sdkFields(), client -> client.describeVpnGateways().vpnGateways()),
+                        simpleRegionalTable("security_groups", SecurityGroup.builder().sdkFields(), DescribeSecurityGroupsRequest::builder, (client, request) -> client.describeSecurityGroupsPaginator(request).securityGroups()),
+                        simpleRegionalTable("subnets", Subnet.builder().sdkFields(), DescribeSubnetsRequest::builder, (client, request) -> client.describeSubnetsPaginator(request).subnets()),
+                        simpleRegionalTable("tags", TagDescription.builder().sdkFields(), DescribeTagsRequest::builder, (client, request) -> client.describeTagsPaginator(request).tags()),
+                        simpleRegionalTable("volumes", Volume.builder().sdkFields(), DescribeVolumesRequest::builder, (client, request) -> client.describeVolumesPaginator(request).volumes()),
+                        simpleRegionalTable("vpc_endpoints", VpcEndpoint.builder().sdkFields(), DescribeVpcEndpointsRequest::builder, (client, request) -> client.describeVpcEndpointsPaginator(request).vpcEndpoints()),
+                        simpleRegionalTable("vpc_peering_connections", VpcPeeringConnection.builder().sdkFields(), DescribeVpcPeeringConnectionsRequest::builder, (client, request) -> client.describeVpcPeeringConnectionsPaginator(request).vpcPeeringConnections()),
+                        simpleRegionalTable("vpcs", Vpc.builder().sdkFields(), DescribeVpcsRequest::builder, (client, request) -> client.describeVpcsPaginator(request).vpcs()),
+                        simpleRegionalTable("vpn_connections", VpnConnection.builder().sdkFields(), DescribeVpnConnectionsRequest::builder, (client, request) -> client.describeVpnConnections(request).vpnConnections()),
+                        simpleRegionalTable("vpn_gateways", VpnGateway.builder().sdkFields(), DescribeVpnGatewaysRequest::builder, (client, request) -> client.describeVpnGateways(request).vpnGateways()),
                         AwsTable.builder(new SchemaTableName("s3", "buckets"), SdkTableColumns.of(Bucket.builder().sdkFields()))
                                 .rowSource((_, _) -> sdkRows(s3.listBucketsPaginator(ListBucketsRequest.builder().build()).buckets()))
                                 .inserter(new Inserter(CreateBucketRequest::builder, request -> createBucket(s3, (CreateBucketRequest) request), bucketSetters()))
@@ -217,16 +238,16 @@ public class AwsTables
         return tables.values();
     }
 
-    private static AwsTable simpleTable(String schema, String table, List<SdkField<?>> sdkFields, Supplier<Iterable<? extends SdkPojo>> rows)
+    private static <R extends Ec2Request> AwsTable simpleTable(String schema, String table, List<SdkField<?>> sdkFields, Supplier<? extends SdkBuilder<?, R>> request, Function<R, Iterable<? extends SdkPojo>> rows)
     {
         return AwsTable.builder(new SchemaTableName(schema, table), SdkTableColumns.of(sdkFields))
-                .rowSource((_, _) -> sdkRows(rows.get()))
+                .rowSource((_, _) -> sdkRows(rows.apply(request.get().build())))
                 .build();
     }
 
-    private AwsTable simpleRegionalTable(String table, List<SdkField<?>> sdkFields, Function<Ec2Client, Iterable<? extends SdkPojo>> rows)
+    private <R extends Ec2Request> AwsTable simpleRegionalTable(String table, List<SdkField<?>> sdkFields, Supplier<? extends SdkBuilder<?, R>> request, BiFunction<Ec2Client, R, Iterable<? extends SdkPojo>> rows)
     {
-        return regionalTable(table, SdkTableColumns.builder(sdkFields), (client, _, _) -> rows.apply(client))
+        return regionalTable(table, SdkTableColumns.builder(sdkFields), (client, _, _) -> rows.apply(client, request.get().build()))
                 .build();
     }
 
