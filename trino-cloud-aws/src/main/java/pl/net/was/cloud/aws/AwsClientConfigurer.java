@@ -113,11 +113,16 @@ public class AwsClientConfigurer
 
     private static Region resolveRegion(AwsConfig config)
     {
-        String regionName = config.getRegion().orElseGet(() -> defaultRegionName(config.getProfile()));
+        return knownRegion(config.getRegion().orElseGet(() -> defaultRegionName(config.getProfile())), "aws.region");
+    }
+
+    static Region knownRegion(String regionName, String propertyName)
+    {
         Region region = Region.of(regionName);
         checkArgument(Region.regions().contains(region),
-                "Unknown AWS region '%s', set aws.region to one of: %s",
+                "Unknown AWS region '%s', set %s to one of: %s",
                 regionName,
+                propertyName,
                 Region.regions().stream()
                         .map(Region::id)
                         .sorted()

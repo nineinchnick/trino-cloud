@@ -56,15 +56,16 @@ public final class AwsErrors
 
     public static TrinoException translate(SdkException exception)
     {
-        if (!(exception instanceof AwsServiceException serviceException) || serviceException.awsErrorDetails() == null) {
-            return new TrinoException(AWS_API_ERROR, "AWS request failed: " + exception.getMessage(), exception);
-        }
-        AwsErrorDetails details = serviceException.awsErrorDetails();
-        String message = "AWS request failed with %s (request ID %s): %s".formatted(
-                details.errorCode(),
-                serviceException.requestId(),
-                stripEncodedAuthorizationMessage(details.errorMessage()));
-        return new TrinoException(errorCode(serviceException), message, exception);
+        return translate(exception, "AWS request");
+    }
+
+    /**
+     * Names the region, because a query can read several regions, and some errors, like failed authentication
+     * in a region that's not enabled for the account, only happen in one of them.
+     */
+    public static TrinoException translateInRegion(SdkException exception, String region)
+    {
+        return translate(exception, "AWS request in region " + region);
     }
 
     public static boolean hasErrorCode(SdkException exception, Set<String> errorCodes)
@@ -72,6 +73,20 @@ public final class AwsErrors
         return exception instanceof AwsServiceException serviceException &&
                 serviceException.awsErrorDetails() != null &&
                 errorCodes.contains(serviceException.awsErrorDetails().errorCode());
+    }
+
+    private static TrinoException translate(SdkException exception, String request)
+    {
+        if (!(exception instanceof AwsServiceException serviceException) || serviceException.awsErrorDetails() == null) {
+            return new TrinoException(AWS_API_ERROR, "%s failed: %s".formatted(request, exception.getMessage()), exception);
+        }
+        AwsErrorDetails details = serviceException.awsErrorDetails();
+        String message = "%s failed with %s (request ID %s): %s".formatted(
+                request,
+                details.errorCode(),
+                serviceException.requestId(),
+                stripEncodedAuthorizationMessage(details.errorMessage()));
+        return new TrinoException(errorCode(serviceException), message, exception);
     }
 
     private static ErrorCodeSupplier errorCode(AwsServiceException exception)

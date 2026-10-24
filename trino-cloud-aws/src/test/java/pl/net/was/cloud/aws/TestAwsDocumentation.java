@@ -67,7 +67,7 @@ final class TestAwsDocumentation
                 .setAccessKey("access-key")
                 .setSecretKey("secret-key");
         try (AwsClientConfigurer clientConfigurer = new AwsClientConfigurer(config, OpenTelemetry.noop());
-                Ec2Clients ec2Clients = new Ec2Clients(clientConfigurer);
+                Ec2Clients ec2Clients = new Ec2Clients(clientConfigurer, config);
                 S3Client s3 = clientConfigurer.configure(S3Client.builder()).build()) {
             return new AwsTables(ec2Clients, s3).all().stream()
                     .map(table -> table.name().toString())

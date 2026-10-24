@@ -14,6 +14,7 @@
 
 package pl.net.was.cloud.aws;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
@@ -34,6 +35,7 @@ final class TestAwsConfig
     {
         assertRecordedDefaults(recordDefaults(AwsConfig.class)
                 .setRegion(null)
+                .setRegions(ImmutableList.of())
                 .setEndpoint(null)
                 .setAccessKey(null)
                 .setSecretKey(null)
@@ -53,6 +55,7 @@ final class TestAwsConfig
     {
         Map<String, String> properties = ImmutableMap.<String, String>builder()
                 .put("aws.region", "eu-central-1")
+                .put("aws.regions", "eu-central-1, eu-west-1")
                 .put("aws.endpoint", "http://localhost:4566")
                 .put("aws.access-key", "access")
                 .put("aws.secret-key", "secret")
@@ -68,6 +71,7 @@ final class TestAwsConfig
 
         AwsConfig expected = new AwsConfig()
                 .setRegion("eu-central-1")
+                .setRegions(ImmutableList.of("eu-central-1", "eu-west-1"))
                 .setEndpoint(URI.create("http://localhost:4566"))
                 .setAccessKey("access")
                 .setSecretKey("secret")
@@ -89,6 +93,7 @@ final class TestAwsConfig
     {
         Map<String, String> properties = ImmutableMap.<String, String>builder()
                 .put("aws.region", "eu-central-1")
+                .put("aws.regions", "eu-central-1, eu-west-1")
                 .put("aws.endpoint", "http://localhost:4566")
                 .put("aws.profile", "production")
                 .put("aws.iam-role", "arn:aws:iam::123456789012:role/trino")
@@ -103,6 +108,7 @@ final class TestAwsConfig
 
         AwsConfig expected = new AwsConfig()
                 .setRegion("eu-central-1")
+                .setRegions(ImmutableList.of("eu-central-1", "eu-west-1"))
                 .setEndpoint(URI.create("http://localhost:4566"))
                 .setProfile("production")
                 .setIamRole("arn:aws:iam::123456789012:role/trino")

@@ -14,6 +14,7 @@
 
 package pl.net.was.cloud.aws;
 
+import com.google.common.collect.ImmutableList;
 import io.airlift.configuration.Config;
 import io.airlift.configuration.ConfigDescription;
 import io.airlift.configuration.ConfigSecuritySensitive;
@@ -24,11 +25,15 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 import java.net.URI;
+import java.util.List;
 import java.util.Optional;
 
 public class AwsConfig
 {
+    public static final String ALL_REGIONS = "*";
+
     private String region;
+    private List<String> regions = ImmutableList.of();
     private URI endpoint;
     private String accessKey;
     private String secretKey;
@@ -53,6 +58,20 @@ public class AwsConfig
     public AwsConfig setRegion(String region)
     {
         this.region = region;
+        return this;
+    }
+
+    @NotNull
+    public List<String> getRegions()
+    {
+        return regions;
+    }
+
+    @Config("aws.regions")
+    @ConfigDescription("AWS regions queried by the tables of regional EC2 resources, or * for all regions enabled for the account; defaults to the region set in aws.region")
+    public AwsConfig setRegions(List<String> regions)
+    {
+        this.regions = ImmutableList.copyOf(regions);
         return this;
     }
 
@@ -216,6 +235,12 @@ public class AwsConfig
     {
         this.maxInsertedRows = maxInsertedRows;
         return this;
+    }
+
+    @AssertTrue(message = "aws.regions must be either * or a list of region names")
+    public boolean isAllRegionsExclusive()
+    {
+        return !regions.contains(ALL_REGIONS) || regions.size() == 1;
     }
 
     @AssertTrue(message = "aws.access-key and aws.secret-key must be set together")

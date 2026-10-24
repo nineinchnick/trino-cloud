@@ -25,6 +25,7 @@ import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
 
 import java.net.URI;
+import java.util.List;
 
 import static io.airlift.testing.ValidationAssertions.assertFailsValidation;
 import static io.airlift.testing.ValidationAssertions.assertValidates;
@@ -86,6 +87,17 @@ final class TestAwsConfigValidation
                 new AwsConfig().setExternalId("external"),
                 "externalIdUsedWithIamRole",
                 "aws.external-id can only be set together with aws.iam-role",
+                AssertTrue.class);
+    }
+
+    @Test
+    void testAllRegionsWithRegionNames()
+    {
+        assertValidates(new AwsConfig().setRegions(List.of("*")));
+        assertFailsValidation(
+                new AwsConfig().setRegions(List.of("*", "eu-west-1")),
+                "allRegionsExclusive",
+                "aws.regions must be either * or a list of region names",
                 AssertTrue.class);
     }
 

@@ -58,6 +58,15 @@ final class EmulatorAwsQueryRunner
         return createQueryRunner(emulator, ImmutableMap.of(), catalogProperties);
     }
 
+    static Map<String, String> connectionProperties(Floci emulator)
+    {
+        return ImmutableMap.of(
+                "aws.endpoint", emulator.endpoint().toString(),
+                "aws.region", FLOCI_REGION,
+                "aws.access-key", FLOCI_ACCESS_KEY,
+                "aws.secret-key", FLOCI_SECRET_KEY);
+    }
+
     private static QueryRunner createQueryRunner(Floci emulator, Map<String, String> coordinatorProperties, Map<String, String> catalogProperties)
             throws Exception
     {
@@ -73,10 +82,7 @@ final class EmulatorAwsQueryRunner
         try {
             queryRunner.installPlugin(new AwsPlugin());
             queryRunner.createCatalog("aws", "aws", ImmutableMap.<String, String>builder()
-                    .put("aws.endpoint", emulator.endpoint().toString())
-                    .put("aws.region", FLOCI_REGION)
-                    .put("aws.access-key", FLOCI_ACCESS_KEY)
-                    .put("aws.secret-key", FLOCI_SECRET_KEY)
+                    .putAll(connectionProperties(emulator))
                     .putAll(catalogProperties)
                     .buildOrThrow());
             return queryRunner;
