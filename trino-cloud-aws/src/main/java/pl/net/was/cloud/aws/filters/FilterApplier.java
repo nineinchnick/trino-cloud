@@ -33,7 +33,6 @@ import pl.net.was.cloud.aws.AwsTableHandle;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
@@ -81,18 +80,7 @@ public interface FilterApplier
                 continue;
             }
             // merge with other pushed down constraints
-            Domain domain = newConstraint.getDomains().get().get(column);
-            if (currentConstraint.getDomains().isEmpty()) {
-                currentConstraint = newConstraint;
-            }
-            else if (!currentConstraint.getDomains().get().containsKey(column)) {
-                Map<ColumnHandle, Domain> domains = new HashMap<>(currentConstraint.getDomains().get());
-                domains.put(column, domain);
-                currentConstraint = TupleDomain.withColumnDomains(domains);
-            }
-            else {
-                currentConstraint.getDomains().get().get(column).union(domain);
-            }
+            currentConstraint = currentConstraint.intersect(newConstraint);
             found = true;
             // remove from remaining constraints
             summary = summary.filter(
@@ -156,16 +144,17 @@ public interface FilterApplier
         }
         Domain currentDomain = currentConstraint.getDomains().get().get(column);
         Domain newDomain = newConstraint.getDomains().get().get(column);
-        if (currentDomain.equals(newDomain)) {
+        if (currentDomain.intersect(newDomain).equals(currentDomain)) {
             // it is important to avoid processing same constraint multiple times
             // so that planner doesn't get stuck in a loop
             return false;
         }
         if (supportedFilter == EQUAL) {
-            // can push down only the first predicate against this column
-            throw new TrinoException(INVALID_ROW_FILTER, "Already pushed down a predicate for " + column.name() + " which only supports a single value");
+            // can push down only the first predicate against this column, the engine applies the remaining one
+            log.debug("Not pushing down filter on %s because a different filter was already pushed down: %s", column.name(), newDomain);
+            return false;
         }
-        // don't need to check for GREATER_THAN_EQUAL since there can only be a single low-bound range, so union would work
+        // GREATER_THAN_EQUAL has a single low-bound range, so intersecting keeps the higher bound
         return true;
     }
 
