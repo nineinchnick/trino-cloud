@@ -398,6 +398,30 @@ final class TestAwsConnectorEmulator
                 "VALUES ('%s', '10.0.1.0/24', 'us-east-1a')".formatted(testData.vpcId()));
     }
 
+    // Floci has a default VPC with default subnets, so the number of rows read shows that AWS returned only the matching rows
+    @Test
+    void testEc2FiltersPushdown()
+    {
+        assertThat(query("SELECT vpc_id FROM aws.ec2.vpcs WHERE vpc_id = '%s'".formatted(testData.vpcId())))
+                .isNotFullyPushedDown(FilterNode.class)
+                .matches("VALUES VARCHAR '%s'".formatted(testData.vpcId()));
+        assertInputRows("SELECT vpc_id FROM aws.ec2.vpcs WHERE vpc_id = '%s'".formatted(testData.vpcId()), 1);
+        assertInputRows("SELECT vpc_id FROM aws.ec2.vpcs WHERE is_default", 1);
+        assertInputRows("SELECT subnet_id FROM aws.ec2.subnets WHERE vpc_id = '%s'".formatted(testData.vpcId()), 1);
+        assertInputRows("SELECT subnet_id FROM aws.ec2.subnets WHERE subnet_id IN ('%s', 'subnet-0123456789abcdef0')".formatted(testData.subnetId()), 1);
+        assertInputRows("SELECT instance_id FROM aws.ec2.instances WHERE vpc_id = '%s'".formatted(testData.vpcId()), 2);
+        assertInputRows("SELECT instance_id FROM aws.ec2.instances WHERE subnet_id = '%s'".formatted(testData.subnetId()), 2);
+        assertInputRows("SELECT instance_id FROM aws.ec2.instances WHERE subnet_id = 'subnet-0123456789abcdef0'", 0);
+        assertQuery("SELECT count(*) FROM aws.ec2.instances WHERE vpc_id = '%s' AND subnet_id = '%s'".formatted(testData.vpcId(), testData.subnetId()), "VALUES 2");
+    }
+
+    @Test
+    void testInstanceStateNamePushdown()
+    {
+        assertQuery("SELECT count(*) FROM aws.ec2.instances WHERE state_name = 'running' AND subnet_id = '%s'".formatted(testData.subnetId()), "VALUES 2");
+        assertInputRows("SELECT instance_id FROM aws.ec2.instances WHERE state_name IN ('stopped', 'terminated') AND subnet_id = '%s'".formatted(testData.subnetId()), 0);
+    }
+
     @Test
     void testSecurityGroups()
     {
@@ -576,5 +600,10 @@ final class TestAwsConnectorEmulator
     private void assertSplitCount(String sql, int expectedSplits)
     {
         assertQueryStats(getSession(), sql, stats -> assertThat(TableScanSplits.count(stats)).isEqualTo(expectedSplits), _ -> {});
+    }
+
+    private void assertInputRows(String sql, long expectedRows)
+    {
+        assertQueryStats(getSession(), sql, stats -> assertThat(stats.getPhysicalInputPositions()).isEqualTo(expectedRows), _ -> {});
     }
 }

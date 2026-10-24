@@ -322,17 +322,17 @@ The connector provides the `ec2` and `s3` schemas. The tables are not created by
 users, and every catalog has the same set of tables.
 
 The AWS API operations that list resources only support a few filters. The
-connector pushes down equality and `IN` predicates on the columns listed in the
-**Pushed-down filters** column of the following tables, so AWS returns fewer
-rows. Predicates that allow `NULL` values are not pushed down. Trino applies all
-other predicates after reading every row returned by the AWS API operation.
+connector pushes down equality and `IN` predicates on the columns listed in
+[Pushed-down filters](#pushed-down-filters), so AWS returns fewer rows.
+Predicates that allow `NULL` values are not pushed down. Trino applies all other
+predicates after reading every row returned by the AWS API operation.
 
 When a pushed-down `IN` predicate lists more values than a single AWS request
 accepts, the scan is divided into splits that run in parallel on multiple
 workers: one split per bucket for the `s3` object tables, also when they're
-not filtered on `bucket_name`, and one split per batch
-of 100 instance, image or snapshot IDs. Regional tables are also read in a
-separate split for every region, and for every batch of IDs in each region.
+not filtered on `bucket_name`, and one split per batch of 100 values of other
+filters, like instance, image or snapshot IDs. Regional tables are also read in
+a separate split for every region, and for every batch of values in each region.
 
 ## `ec2` schema
 
@@ -348,34 +348,31 @@ FROM example.ec2.instances
 WHERE region IN ('eu-central-1', 'eu-west-1');
 ```
 
-The `region` column is not listed as a pushed-down filter in the following
-table, but it's pushed down for every table except `ec2.regions`.
-
-| Table                         | Description                            | Pushed-down filters                    | Supported writes             |
-|-------------------------------|----------------------------------------|----------------------------------------|------------------------------|
-| `ec2.availability_zones`      | Availability Zones and Local Zones     |                                        |                              |
-| `ec2.images`                  | Amazon Machine Images (AMIs)           | `image_id`, `name`, `owner_id`         | `INSERT`, `DELETE`           |
-| `ec2.instance_types`          | Instance types available in the region |                                        |                              |
-| `ec2.instances`               | EC2 instances                          | `instance_id`                          | `INSERT`, `UPDATE`, `DELETE` |
-| `ec2.key_pairs`               | Key pairs                              |                                        |                              |
-| `ec2.launch_templates`        | Launch templates                       |                                        |                              |
-| `ec2.nat_gateways`            | NAT gateways                           |                                        |                              |
-| `ec2.network_interfaces`      | Network interfaces                     |                                        |                              |
-| `ec2.placement_groups`        | Placement groups                       |                                        |                              |
-| `ec2.prefix_lists`            | Prefix lists of AWS services           |                                        |                              |
-| `ec2.public_ipv4_pools`       | Public IPv4 address pools              |                                        |                              |
-| `ec2.regions`                 | Regions enabled for the account        |                                        |                              |
-| `ec2.route_tables`            | Route tables                           |                                        |                              |
-| `ec2.security_groups`         | Security groups                        |                                        |                              |
-| `ec2.snapshots`               | EBS snapshots                          | `snapshot_id`, `volume_id`, `owner_id` |                              |
-| `ec2.subnets`                 | Subnets                                |                                        |                              |
-| `ec2.tags`                    | Tags of all EC2 resources              |                                        |                              |
-| `ec2.volumes`                 | EBS volumes                            |                                        |                              |
-| `ec2.vpc_endpoints`           | VPC endpoints                          |                                        |                              |
-| `ec2.vpc_peering_connections` | VPC peering connections                |                                        |                              |
-| `ec2.vpcs`                    | VPCs                                   |                                        |                              |
-| `ec2.vpn_connections`         | Site-to-Site VPN connections           |                                        |                              |
-| `ec2.vpn_gateways`            | Virtual private gateways               |                                        |                              |
+| Table                         | Description                            | Supported writes             |
+|-------------------------------|----------------------------------------|------------------------------|
+| `ec2.availability_zones`      | Availability Zones and Local Zones     |                              |
+| `ec2.images`                  | Amazon Machine Images (AMIs)           | `INSERT`, `DELETE`           |
+| `ec2.instance_types`          | Instance types available in the region |                              |
+| `ec2.instances`               | EC2 instances                          | `INSERT`, `UPDATE`, `DELETE` |
+| `ec2.key_pairs`               | Key pairs                              |                              |
+| `ec2.launch_templates`        | Launch templates                       |                              |
+| `ec2.nat_gateways`            | NAT gateways                           |                              |
+| `ec2.network_interfaces`      | Network interfaces                     |                              |
+| `ec2.placement_groups`        | Placement groups                       |                              |
+| `ec2.prefix_lists`            | Prefix lists of AWS services           |                              |
+| `ec2.public_ipv4_pools`       | Public IPv4 address pools              |                              |
+| `ec2.regions`                 | Regions enabled for the account        |                              |
+| `ec2.route_tables`            | Route tables                           |                              |
+| `ec2.security_groups`         | Security groups                        |                              |
+| `ec2.snapshots`               | EBS snapshots                          |                              |
+| `ec2.subnets`                 | Subnets                                |                              |
+| `ec2.tags`                    | Tags of all EC2 resources              |                              |
+| `ec2.volumes`                 | EBS volumes                            |                              |
+| `ec2.vpc_endpoints`           | VPC endpoints                          |                              |
+| `ec2.vpc_peering_connections` | VPC peering connections                |                              |
+| `ec2.vpcs`                    | VPCs                                   |                              |
+| `ec2.vpn_connections`         | Site-to-Site VPN connections           |                              |
+| `ec2.vpn_gateways`            | Virtual private gateways               |                              |
 
 Without a filter on `owner_id`, the `ec2.images` and `ec2.snapshots` tables only
 list images and snapshots owned by the account of the catalog credentials,
@@ -402,12 +399,12 @@ and many AWS requests, so filter on `bucket_name` when possible. A filter on
 `bucket_name` can also choose buckets of other accounts that grant access to
 them.
 
-| Table                | Description                                     | Pushed-down filters | Supported writes |
-|----------------------|-------------------------------------------------|---------------------|------------------|
-| `s3.buckets`         | Buckets owned by the account                    |                     | `INSERT`         |
-| `s3.objects`         | Current versions of objects in a bucket         | `bucket_name`       |                  |
-| `s3.object_versions` | All versions of objects in a bucket             | `bucket_name`       |                  |
-| `s3.deleted_objects` | Delete markers of objects in a versioned bucket | `bucket_name`       |                  |
+| Table                | Description                                     | Supported writes |
+|----------------------|-------------------------------------------------|------------------|
+| `s3.buckets`         | Buckets owned by the account                    | `INSERT`         |
+| `s3.objects`         | Current versions of objects in a bucket         |                  |
+| `s3.object_versions` | All versions of objects in a bucket             |                  |
+| `s3.deleted_objects` | Delete markers of objects in a versioned bucket |                  |
 
 For example, to list the largest objects in a bucket:
 
@@ -418,6 +415,79 @@ WHERE bucket_name = 'my-bucket'
 ORDER BY size DESC
 LIMIT 10;
 ```
+
+## Pushed-down filters
+
+Equality and `IN` predicates on the following columns are pushed down to the AWS
+API operations that list the resources. Predicates on the `region` column are
+pushed down for every `ec2` table except `ec2.regions`, and are not listed.
+
+- `ec2.availability_zones`: `group_long_name`, `group_name`, `opt_in_status`,
+  `parent_zone_id`, `parent_zone_name`, `region_name`, `state`, `zone_id`,
+  `zone_name`, `zone_type`
+- `ec2.images`: `architecture`, `boot_mode`, `creation_date`, `description`,
+  `ena_support`, `free_tier_eligible`, `hypervisor`, `image_allowed`,
+  `image_id`, `image_type`, `kernel_id`, `name`, `owner_id`, `ramdisk_id`,
+  `root_device_name`, `root_device_type`, `source_image_id`,
+  `source_image_region`, `source_instance_id`, `sriov_net_support`, `state`,
+  `virtualization_type`
+- `ec2.instance_types`: `auto_recovery_supported`, `bare_metal`,
+  `burstable_performance_supported`, `current_generation`,
+  `dedicated_hosts_supported`, `free_tier_eligible`, `hibernation_supported`,
+  `hypervisor`, `instance_storage_supported`, `instance_type`,
+  `nitro_enclaves_support`, `nitro_tpm_support`, `reboot_migration_support`
+- `ec2.instances`: `architecture`, `boot_mode`, `capacity_reservation_id`,
+  `client_token`, `current_instance_boot_mode`, `ebs_optimized`, `ena_support`,
+  `hypervisor`, `image_id`, `instance_id`, `instance_lifecycle`,
+  `instance_type`, `ipv6_address`, `kernel_id`, `key_name`, `outpost_arn`,
+  `platform_details`, `private_dns_name`, `private_ip_address`, `ramdisk_id`,
+  `root_device_name`, `root_device_type`, `source_dest_check`,
+  `spot_instance_request_id`, `state_name`, `subnet_id`, `tpm_support`,
+  `usage_operation`, `virtualization_type`, `vpc_id`
+- `ec2.key_pairs`: `key_name`, `key_pair_id`
+- `ec2.launch_templates`: `launch_template_name`
+- `ec2.nat_gateways`: `nat_gateway_id`, `state`, `subnet_id`, `vpc_id`
+- `ec2.network_interfaces`: `availability_zone`, `availability_zone_id`,
+  `description`, `interface_type`, `mac_address`, `network_interface_id`,
+  `owner_id`, `private_dns_name`, `private_ip_address`, `requester_id`,
+  `requester_managed`, `source_dest_check`, `status`, `subnet_id`, `vpc_id`
+- `ec2.placement_groups`: `group_arn`, `group_name`, `spread_level`, `state`,
+  `strategy`
+- `ec2.prefix_lists`: `prefix_list_id`, `prefix_list_name`
+- `ec2.regions`: `endpoint`, `opt_in_status`, `region_name`
+- `ec2.route_tables`: `owner_id`, `route_table_id`, `vpc_id`
+- `ec2.security_groups`: `description`, `group_id`, `group_name`, `owner_id`,
+  `vpc_id`
+- `ec2.snapshots`: `description`, `encrypted`, `owner_id`, `snapshot_id`,
+  `state`, `storage_tier`, `transfer_type`, `volume_id`, `volume_size`
+- `ec2.subnets`: `availability_zone`, `availability_zone_id`,
+  `available_ip_address_count`, `cidr_block`, `customer_owned_ipv4_pool`,
+  `default_for_az`, `enable_dns64`, `enable_lni_at_device_index`, `ipv6_native`,
+  `map_customer_owned_ip_on_launch`, `map_public_ip_on_launch`, `outpost_arn`,
+  `owner_id`, `state`, `subnet_arn`, `subnet_id`, `vpc_id`
+- `ec2.tags`: `key`, `resource_id`, `resource_type`, `value`
+- `ec2.volumes`: `availability_zone`, `availability_zone_id`, `encrypted`,
+  `fast_restored`, `multi_attach_enabled`, `size`, `snapshot_id`, `state`,
+  `volume_id`, `volume_type`
+- `ec2.vpc_endpoints`: `ip_address_type`, `service_name`, `service_region`,
+  `vpc_endpoint_id`, `vpc_endpoint_type`, `vpc_id`
+- `ec2.vpc_peering_connections`: `vpc_peering_connection_id`
+- `ec2.vpcs`: `dhcp_options_id`, `is_default`, `owner_id`, `state`, `vpc_id`
+- `ec2.vpn_connections`: `customer_gateway_id`, `state`, `transit_gateway_id`,
+  `type`, `vpn_connection_id`, `vpn_gateway_id`
+- `ec2.vpn_gateways`: `amazon_side_asn`, `availability_zone`, `state`, `type`,
+  `vpn_gateway_id`
+- `s3.deleted_objects`: `bucket_name`
+- `s3.object_versions`: `bucket_name`
+- `s3.objects`: `bucket_name`
+
+Predicates on columns that are parameters of the AWS API operation, like
+`image_id`, `snapshot_id` and `bucket_name`, return only the matching rows.
+Predicates on other columns of `ec2` tables are pushed down as EC2 filters with
+the same name, like the `vpc-id` filter for the `vpc_id` column, or the
+`instance-state-name` filter for the `state_name` column of `ec2.instances`.
+EC2 filter values treat `*` and `?` as wildcards, so Trino still applies these
+predicates to the returned rows.
 
 # SQL support
 

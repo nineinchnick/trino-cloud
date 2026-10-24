@@ -20,8 +20,10 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -69,6 +71,17 @@ public final class ColumnFilter
     public static ColumnFilter ec2Filter(String column, String filterName)
     {
         return new Builder(column, Kind.EC2_FILTER, Optional.of(filterName), false).build();
+    }
+
+    /**
+     * EC2 filters on the columns with the same name in snake case, like vpc_id for vpc-id. The names of the filters accepted by an EC2 API operation
+     * are not a part of the SDK model, so every table declares them, as listed in the AWS API reference.
+     */
+    public static List<ColumnFilter> ec2Filters(String... filterNames)
+    {
+        return Stream.of(filterNames)
+                .map(filterName -> ec2Filter(filterName.replace('-', '_'), filterName))
+                .collect(toImmutableList());
     }
 
     /**

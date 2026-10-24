@@ -29,6 +29,7 @@ import pl.net.was.cloud.aws.AwsColumnHandle;
 import pl.net.was.cloud.aws.AwsTableHandle;
 import pl.net.was.cloud.aws.filters.TableFilters.MissingValues;
 import pl.net.was.cloud.aws.filters.TableFilters.Partition;
+import software.amazon.awssdk.services.ec2.model.DescribeNatGatewaysRequest;
 import software.amazon.awssdk.services.ec2.model.DescribeVpcsRequest;
 import software.amazon.awssdk.services.ec2.model.Filter;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
@@ -158,6 +159,33 @@ final class TestTableFilters
                         Filter.builder().name("is-default").values("true").build())
                 .maxResults(5)
                 .build());
+    }
+
+    @Test
+    void testEc2FiltersOnColumnsWithMatchingNames()
+    {
+        List<ColumnFilter> ec2Filters = ColumnFilter.ec2Filters("vpc-id", "is-default");
+        DescribeVpcsRequest.Builder request = DescribeVpcsRequest.builder();
+
+        TableFilters.create(TABLE_NAME, COLUMNS, ec2Filters, DescribeVpcsRequest.builder().sdkFields())
+                .applyTo(request, TupleDomain.withColumnDomains(Map.of(VPC_ID, values("vpc-1"), IS_DEFAULT, Domain.singleValue(BOOLEAN, false))));
+
+        assertThat(ec2Filters).extracting(ColumnFilter::column).containsExactly("vpc_id", "is_default");
+        assertThat(request.build().filters()).containsExactly(
+                Filter.builder().name("vpc-id").values("vpc-1").build(),
+                Filter.builder().name("is-default").values("false").build());
+    }
+
+    // the list of filters of DescribeNatGateways is named Filter
+    @Test
+    void testEc2FiltersInDifferentlyNamedMember()
+    {
+        DescribeNatGatewaysRequest.Builder request = DescribeNatGatewaysRequest.builder();
+
+        TableFilters.create(new SchemaTableName("ec2", "nat_gateways"), COLUMNS, List.of(ec2Filter("state", "state")), DescribeNatGatewaysRequest.builder().sdkFields())
+                .applyTo(request, TupleDomain.withColumnDomains(Map.of(STATE, values("available"))));
+
+        assertThat(request.build().filter()).containsExactly(Filter.builder().name("state").values("available").build());
     }
 
     @Test
