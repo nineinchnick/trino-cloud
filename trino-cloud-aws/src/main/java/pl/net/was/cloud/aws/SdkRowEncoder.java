@@ -75,7 +75,7 @@ final class SdkRowEncoder
         MarshallingType<?> sdkType = f.marshallingType();
         if (sdkType == MarshallingType.STRING) {
             if (o == null) {
-                return "";
+                return null;
             }
             return Slices.utf8Slice((String) o);
         }
@@ -113,7 +113,7 @@ final class SdkRowEncoder
             return varcharBlockBuilder.build();
         }
         if (o == null) {
-            return "";
+            return null;
         }
         return o.toString();
     }
