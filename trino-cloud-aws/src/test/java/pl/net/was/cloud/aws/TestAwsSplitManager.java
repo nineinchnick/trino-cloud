@@ -38,6 +38,7 @@ import software.amazon.awssdk.services.s3.S3Client;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.trino.spi.connector.DynamicFilterSnapshot.EMPTY;
@@ -50,14 +51,16 @@ import static pl.net.was.cloud.aws.filters.FilterApplier.ID_BATCH_SIZE;
 @TestInstance(PER_CLASS)
 final class TestAwsSplitManager
 {
+    private static final List<String> REGIONS = List.of("eu-west-1", "us-east-1");
     private static final AwsConfig CONFIG = new AwsConfig()
             .setRegion("us-east-1")
+            .setRegions(REGIONS)
             .setAccessKey("access-key")
             .setSecretKey("secret-key");
 
     // the clients are only used to build the table definitions, so they never send any requests
     private final AwsClientConfigurer clientConfigurer = new AwsClientConfigurer(CONFIG, OpenTelemetry.noop());
-    private final Ec2Clients ec2Clients = new Ec2Clients(clientConfigurer);
+    private final Ec2Clients ec2Clients = new Ec2Clients(clientConfigurer, CONFIG);
     private final S3Client s3 = clientConfigurer.configure(S3Client.builder()).build();
     private final AwsSplitManager splitManager = new AwsSplitManager(new AwsTables(ec2Clients, s3));
 
@@ -70,17 +73,58 @@ final class TestAwsSplitManager
     }
 
     @Test
-    void testWholeTableWithoutFilters()
+    void testWholeTableOfGlobalTables()
     {
-        assertThat(splits(new AwsTableHandle(new SchemaTableName("ec2", "instances"))))
+        assertThat(splits(new AwsTableHandle(new SchemaTableName("ec2", "regions"))))
+                .containsExactly(AwsConnectorSplit.WHOLE_TABLE);
+        assertThat(splits(new AwsTableHandle(new SchemaTableName("s3", "buckets"))))
                 .containsExactly(AwsConnectorSplit.WHOLE_TABLE);
     }
 
     @Test
-    void testWholeTableWhenValuesFitInOneRequest()
+    void testSplitPerRegionWithoutFilters()
+    {
+        for (String table : List.of("instances", "images", "snapshots", "vpcs")) {
+            assertThat(splits(new AwsTableHandle(new SchemaTableName("ec2", table))))
+                    .as(table)
+                    .extracting(TestAwsSplitManager::filteredColumns)
+                    .containsExactly(Map.of("region", List.of("eu-west-1")), Map.of("region", List.of("us-east-1")));
+        }
+    }
+
+    @Test
+    void testSplitPerRegionWhenValuesFitInOneRequest()
     {
         assertThat(splits(filtered("ec2", "instances", "instance_id", ids(ID_BATCH_SIZE))))
+                .extracting(TestAwsSplitManager::filteredColumns)
+                .containsExactly(Map.of("region", List.of("eu-west-1")), Map.of("region", List.of("us-east-1")));
+    }
+
+    @Test
+    void testRegionFilter()
+    {
+        assertThat(splits(filtered("ec2", "vpcs", "region", List.of("us-east-1", "ap-south-1"))))
+                .extracting(TestAwsSplitManager::filteredColumns)
+                .containsExactly(Map.of("region", List.of("us-east-1")));
+        assertThat(splits(filtered("ec2", "vpcs", "region", List.of("ap-south-1"))))
+                .isEmpty();
+        // the table handle already selects the only region
+        assertThat(splits(filtered("ec2", "vpcs", "region", List.of("eu-west-1"))))
                 .containsExactly(AwsConnectorSplit.WHOLE_TABLE);
+    }
+
+    @Test
+    void testSplitPerRegionAndBatchOfIds()
+    {
+        List<String> ids = ids(2 * ID_BATCH_SIZE + 1);
+        List<Map<String, List<String>>> expected = REGIONS.stream()
+                .flatMap(region -> Stream.of(ids.subList(0, ID_BATCH_SIZE), ids.subList(ID_BATCH_SIZE, 2 * ID_BATCH_SIZE), ids.subList(2 * ID_BATCH_SIZE, ids.size()))
+                        .map(batch -> Map.of("region", List.of(region), "instance_id", batch)))
+                .toList();
+
+        assertThat(splits(filtered("ec2", "instances", "instance_id", ids)))
+                .extracting(TestAwsSplitManager::filteredColumns)
+                .containsExactlyElementsOf(expected);
     }
 
     @Test
@@ -89,18 +133,6 @@ final class TestAwsSplitManager
         assertThat(splits(filtered("s3", "objects", "bucket_name", List.of("a", "b", "c"))))
                 .extracting(split -> values(split, "bucket_name"))
                 .containsExactly(List.of("a"), List.of("b"), List.of("c"));
-    }
-
-    @Test
-    void testSplitPerBatchOfIds()
-    {
-        List<List<String>> batches = splits(filtered("ec2", "instances", "instance_id", ids(2 * ID_BATCH_SIZE + 1))).stream()
-                .map(split -> values(split, "instance_id"))
-                .toList();
-
-        assertThat(batches).hasSize(3);
-        assertThat(batches).extracting(List::size).containsExactly(ID_BATCH_SIZE, ID_BATCH_SIZE, 1);
-        assertThat(batches.stream().flatMap(List::stream).toList()).isEqualTo(ids(2 * ID_BATCH_SIZE + 1));
     }
 
     @Test
@@ -174,10 +206,15 @@ final class TestAwsSplitManager
         ImmutableMap.Builder<ColumnHandle, Domain> domains = ImmutableMap.builder();
         filters.forEach((column, values) -> domains.put(table.columnHandle(column), Domain.multipleValues(VARCHAR, values.stream().map(Slices::utf8Slice).toList())));
         return AwsSplitManager.splits(table, filterApplier, TupleDomain.withColumnDomains(domains.buildOrThrow())).stream()
-                .<Map<String, List<String>>>map(split -> split.constraint().getDomains().orElseThrow().keySet().stream()
-                        .map(column -> ((AwsColumnHandle) column).name())
-                        .collect(toImmutableMap(identity(), column -> values(split, column))))
+                .map(TestAwsSplitManager::filteredColumns)
                 .toList();
+    }
+
+    private static Map<String, List<String>> filteredColumns(AwsConnectorSplit split)
+    {
+        return split.constraint().getDomains().orElseThrow().keySet().stream()
+                .map(column -> ((AwsColumnHandle) column).name())
+                .collect(toImmutableMap(identity(), column -> values(split, column)));
     }
 
     private List<AwsConnectorSplit> splits(AwsTableHandle table)

@@ -13,10 +13,18 @@
  */
 package pl.net.was.cloud.aws;
 
+import io.opentelemetry.api.OpenTelemetry;
+import io.trino.spi.connector.ColumnMetadata;
 import org.junit.jupiter.api.Test;
+import pl.net.was.cloud.aws.AwsTables.RegionalRowId;
+import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 
+import java.util.List;
+
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 final class TestAwsTables
 {
@@ -32,5 +40,46 @@ final class TestAwsTables
                 .createBucketConfiguration(configuration -> configuration.locationConstraint("eu-west-1"))
                 .build();
         assertThat(AwsTables.withLocationConstraint(withRegion, "eu-central-1")).isEqualTo(withRegion);
+    }
+
+    // the clients are only used to build the table definitions, so they never send any requests
+    @Test
+    void testRegionColumnOfRegionalTables()
+    {
+        AwsConfig config = new AwsConfig()
+                .setRegion("us-east-1")
+                .setAccessKey("access-key")
+                .setSecretKey("secret-key");
+        try (AwsClientConfigurer clientConfigurer = new AwsClientConfigurer(config, OpenTelemetry.noop());
+                Ec2Clients ec2Clients = new Ec2Clients(clientConfigurer, config);
+                S3Client s3 = clientConfigurer.configure(S3Client.builder()).build()) {
+            for (AwsTable table : new AwsTables(ec2Clients, s3).all()) {
+                List<String> columnNames = table.columns().stream()
+                        .map(ColumnMetadata::getName)
+                        .collect(toImmutableList());
+                boolean regional = table.name().getSchemaName().equals("ec2") && !table.name().getTableName().equals("regions");
+                if (!regional) {
+                    assertThat(columnNames).as(table.name().toString()).doesNotContain("region");
+                    continue;
+                }
+                assertThat(columnNames).as(table.name().toString()).contains("region");
+                assertThat(table.requireFilterApplier().getSupportedFilters()).as(table.name().toString()).containsKey("region");
+                assertThat(table.requireFilterApplier().getUnenforcedFilters()).as(table.name().toString()).doesNotContain("region");
+                assertThat(table.requireFilterApplier().getSplitBatchSizes()).as(table.name().toString()).containsEntry("region", 1);
+                assertThat(table.requireFilterApplier().getKnownValues()).as(table.name().toString()).containsEntry("region", List.of("us-east-1"));
+            }
+        }
+    }
+
+    @Test
+    void testRegionalRowId()
+    {
+        RegionalRowId rowId = new RegionalRowId("eu-west-1", "i-123");
+
+        assertThat(rowId.toString()).isEqualTo("eu-west-1/i-123");
+        assertThat(RegionalRowId.parse(rowId.toString())).isEqualTo(rowId);
+        assertThatThrownBy(() -> RegionalRowId.parse("i-123"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Row ID without a region: i-123");
     }
 }

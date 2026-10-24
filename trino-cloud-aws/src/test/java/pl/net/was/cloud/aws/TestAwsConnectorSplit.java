@@ -18,6 +18,7 @@ import io.trino.spi.predicate.Domain;
 import io.trino.spi.predicate.TupleDomain;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
 
 import static io.airlift.slice.Slices.utf8Slice;
@@ -35,6 +36,10 @@ final class TestAwsConnectorSplit
     {
         assertThat(roundTrip(AwsConnectorSplit.class, BUCKET_SPLIT)).isEqualTo(BUCKET_SPLIT);
         assertThat(roundTrip(AwsConnectorSplit.class, AwsConnectorSplit.WHOLE_TABLE)).isEqualTo(AwsConnectorSplit.WHOLE_TABLE);
+        AwsConnectorSplit regionAndIdsSplit = new AwsConnectorSplit(TupleDomain.withColumnDomains(Map.of(
+                new AwsColumnHandle("region", VARCHAR), Domain.singleValue(VARCHAR, utf8Slice("eu-west-1")),
+                new AwsColumnHandle("instance_id", VARCHAR), Domain.multipleValues(VARCHAR, List.of(utf8Slice("i-1"), utf8Slice("i-2"))))));
+        assertThat(roundTrip(AwsConnectorSplit.class, regionAndIdsSplit)).isEqualTo(regionAndIdsSplit);
     }
 
     @Test

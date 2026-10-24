@@ -62,7 +62,7 @@ To connect to AWS, you need:
   `pom.xml` file of the release tag, and the plugin might not load in other
   versions.
 - Network access from the Trino coordinator and workers to the AWS EC2 and S3
-  endpoints of the configured region, or to the endpoint set in the
+  endpoints of the configured regions, or to the endpoint set in the
   `aws.endpoint` property.
 - An AWS account, and credentials of an IAM identity with permissions to call
   the AWS API operations of the queried tables, see [IAM permissions](#iam-permissions).
@@ -162,6 +162,29 @@ which reads the `AWS_REGION` environment variable, the `aws.region` Java system
 property, or the region of the AWS profile. If no region can be resolved, or the
 region name is unknown, creating the catalog fails.
 
+## Multiple regions
+
+By default, the tables of regional EC2 resources only list resources in the
+region set in `aws.region`. To query several regions from one catalog, list them
+in `aws.regions`:
+
+```text
+connector.name=aws
+aws.region=eu-central-1
+aws.regions=eu-central-1,eu-west-1,us-east-1
+```
+
+Set `aws.regions=*` to query all regions enabled for the account. The connector
+lists the enabled regions using `ec2:DescribeRegions` in the region set in
+`aws.region` when they are first needed, and doesn't list them again until the
+catalog is restarted.
+
+Regional tables have a `region` column, see [Tables](#tables). The
+`ec2.regions` table and the tables in the `s3` schema always use the region set
+in `aws.region`. `INSERT` statements create resources in the region set in
+`aws.region`, while `UPDATE` and `DELETE` statements change and remove resources
+in the region they were read from.
+
 ## Credentials
 
 Without `aws.access-key`, `aws.secret-key` or `aws.profile`, the connector reads
@@ -204,21 +227,22 @@ The following configuration properties are available:
 
 AWS configuration properties:
 
-| Property name           | Description                                                                                                                                                            | Default                                               |
-|-------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------|
-| `aws.region`            | AWS region of the EC2 and S3 endpoints, like `eu-central-1`. Unknown region names are rejected when the catalog is created. Replaces the deprecated `region` property. | Region from the AWS SDK default region provider chain |
-| `aws.endpoint`          | Endpoint URL that overrides the AWS service endpoints, for example `http://localhost:4566` for an emulator. Enables S3 path-style access.                              |                                                       |
-| `aws.access-key`        | AWS access key ID. Requires `aws.secret-key`.                                                                                                                          |                                                       |
-| `aws.secret-key`        | AWS secret access key. Requires `aws.access-key`.                                                                                                                      |                                                       |
-| `aws.profile`           | Name of a profile from the AWS shared `~/.aws/config` and `~/.aws/credentials` files. Can't be used with `aws.access-key` and `aws.secret-key`.                        |                                                       |
-| `aws.iam-role`          | ARN of an IAM role to assume using STS, with the credentials from the other properties.                                                                                |                                                       |
-| `aws.external-id`       | External ID required by the trust policy of the role set in `aws.iam-role`. Requires `aws.iam-role`.                                                                   |                                                       |
-| `aws.role-session-name` | Session name used when assuming the role set in `aws.iam-role`.                                                                                                        | `trino-cloud`                                         |
-| `aws.max-connections`   | Maximum number of concurrent connections to each AWS service.                                                                                                          | `50`                                                  |
-| `aws.retry-mode`        | AWS SDK retry mode used when requests fail or are throttled: `STANDARD`, `LEGACY` or `ADAPTIVE`.                                                                       | `ADAPTIVE`                                            |
-| `aws.max-error-retries` | Maximum number of retries of a failed AWS request.                                                                                                                     | `10`                                                  |
-| `aws.read-only`         | Reject `INSERT`, `UPDATE` and `DELETE` statements, which create, modify and remove AWS resources. See [SQL support](#sql-support).                                             | `true`                                                |
-| `aws.max-inserted-rows` | Maximum number of rows a single `INSERT` statement can insert, to limit the number of resources it creates. The limit applies to each writer task.                     | `10`                                                  |
+| Property name           | Description                                                                                                                                                                                                                       | Default                                               |
+|-------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------|
+| `aws.region`            | AWS region of the EC2 and S3 endpoints, like `eu-central-1`. Unknown region names are rejected when the catalog is created. Replaces the deprecated `region` property.                                                            | Region from the AWS SDK default region provider chain |
+| `aws.regions`           | Comma-separated list of AWS regions queried by the regional EC2 tables, or `*` for all regions enabled for the account. Unknown region names are rejected when the catalog is created. See [Multiple regions](#multiple-regions). | The region set in `aws.region`                        |
+| `aws.endpoint`          | Endpoint URL that overrides the AWS service endpoints, for example `http://localhost:4566` for an emulator. Enables S3 path-style access.                                                                                         |                                                       |
+| `aws.access-key`        | AWS access key ID. Requires `aws.secret-key`.                                                                                                                                                                                     |                                                       |
+| `aws.secret-key`        | AWS secret access key. Requires `aws.access-key`.                                                                                                                                                                                 |                                                       |
+| `aws.profile`           | Name of a profile from the AWS shared `~/.aws/config` and `~/.aws/credentials` files. Can't be used with `aws.access-key` and `aws.secret-key`.                                                                                   |                                                       |
+| `aws.iam-role`          | ARN of an IAM role to assume using STS, with the credentials from the other properties.                                                                                                                                           |                                                       |
+| `aws.external-id`       | External ID required by the trust policy of the role set in `aws.iam-role`. Requires `aws.iam-role`.                                                                                                                              |                                                       |
+| `aws.role-session-name` | Session name used when assuming the role set in `aws.iam-role`.                                                                                                                                                                   | `trino-cloud`                                         |
+| `aws.max-connections`   | Maximum number of concurrent connections to each AWS service.                                                                                                                                                                     | `50`                                                  |
+| `aws.retry-mode`        | AWS SDK retry mode used when requests fail or are throttled: `STANDARD`, `LEGACY` or `ADAPTIVE`.                                                                                                                                  | `ADAPTIVE`                                            |
+| `aws.max-error-retries` | Maximum number of retries of a failed AWS request.                                                                                                                                                                                | `10`                                                  |
+| `aws.read-only`         | Reject `INSERT`, `UPDATE` and `DELETE` statements, which create, modify and remove AWS resources. See [SQL support](#sql-support).                                                                                                | `true`                                                |
+| `aws.max-inserted-rows` | Maximum number of rows a single `INSERT` statement can insert, to limit the number of resources it creates. The limit applies to each writer task.                                                                                | `10`                                                  |
 
 # Type mapping
 
@@ -307,11 +331,25 @@ without it.
 When a pushed-down `IN` predicate lists more values than a single AWS request
 accepts, the scan is divided into splits that run in parallel on multiple
 workers: one split per bucket for the `s3` object tables, and one split per batch
-of 100 instance, image or snapshot IDs.
+of 100 instance, image or snapshot IDs. Regional tables are also read in a
+separate split for every region, and for every batch of IDs in each region.
 
 ## `ec2` schema
 
-The tables in the `ec2` schema list resources in the region of the catalog.
+The tables in the `ec2` schema, except `ec2.regions`, list resources in the
+regions set in `aws.regions`, or in the region set in `aws.region`. They have a
+`region` column with the region of every resource. Equality and `IN` predicates
+on the `region` column are pushed down to choose the regions to read, and
+regions that are not configured return no rows:
+
+```sql
+SELECT region, instance_id, state_name
+FROM example.ec2.instances
+WHERE region IN ('eu-central-1', 'eu-west-1');
+```
+
+The `region` column is not listed as a pushed-down filter in the following
+table, but it's pushed down for every table except `ec2.regions`.
 
 | Table                         | Description                            | Required filters | Pushed-down filters                    | Supported writes             |
 |-------------------------------|----------------------------------------|------------------|----------------------------------------|------------------------------|
@@ -414,6 +452,9 @@ The following tables support `INSERT`:
 - `ec2.instances`, which launches one instance for every row.
 - `s3.buckets`, which creates a bucket.
 
+Images and instances are created in the region set in `aws.region`. Inserting a
+different value in the `region` column fails.
+
 A single `INSERT` statement can insert up to `aws.max-inserted-rows` rows, 10
 by default, and fails with the `AWS_TOO_MANY_INSERTED_ROWS` error code when it
 inserts more. When launching instances, the connector sets a client token
@@ -509,11 +550,14 @@ AWS connector error codes:
 
 # Limitations
 
-- A catalog queries a single region. To query multiple regions, create a
-  catalog for every region, see
-  [#291](https://github.com/nineinchnick/trino-cloud/issues/291).
-- Other scans run in a single split on one worker, because AWS returns the pages
-  of a list operation one after another.
+- `INSERT` statements create resources only in the region set in `aws.region`,
+  even when the catalog queries several regions set in `aws.regions`.
+- An error in one region, like failed authentication in a region that's not
+  enabled for the account, fails the whole query. The error message names the
+  region.
+- Scans that are not divided by buckets, IDs or regions, as described in
+  [Tables](#tables), run in a single split on one worker, because AWS returns
+  the pages of a list operation one after another.
 - The connector doesn't provide table or column statistics, so the cost-based
   optimizer can't estimate the size of the tables.
 - Only the filters listed in [Tables](#tables) are pushed down. `LIMIT` and other

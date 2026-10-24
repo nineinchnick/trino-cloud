@@ -38,6 +38,14 @@ final class SdkIterables
         });
     }
 
+    static <T> Iterable<T> translateErrors(Iterable<T> items, String region)
+    {
+        requireNonNull(region, "region is null");
+        return handleErrors(items, e -> {
+            throw AwsErrors.translateInRegion(e, region);
+        });
+    }
+
     static <T> Iterable<T> emptyOnErrorCodes(Iterable<T> items, Set<String> errorCodes)
     {
         requireNonNull(errorCodes, "errorCodes is null");

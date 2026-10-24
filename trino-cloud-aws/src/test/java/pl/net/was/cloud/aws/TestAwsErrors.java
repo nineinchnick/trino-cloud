@@ -77,6 +77,17 @@ final class TestAwsErrors
         assertThat(exception).hasMessage("AWS request failed: Unable to execute HTTP request");
     }
 
+    @Test
+    void testRegion()
+    {
+        TrinoException serviceException = AwsErrors.translateInRegion(ec2Exception(401, "AuthFailure", "AWS was not able to validate the provided access credentials"), "ap-east-1");
+        TrinoException clientException = AwsErrors.translateInRegion(SdkClientException.create("Unable to execute HTTP request"), "ap-east-1");
+
+        assertThat(serviceException.getErrorCode()).isEqualTo(PERMISSION_DENIED.toErrorCode());
+        assertThat(serviceException).hasMessage("AWS request in region ap-east-1 failed with AuthFailure (request ID request-1): AWS was not able to validate the provided access credentials");
+        assertThat(clientException).hasMessage("AWS request in region ap-east-1 failed: Unable to execute HTTP request");
+    }
+
     private static Ec2Exception ec2Exception(int statusCode, String errorCode, String message)
     {
         return (Ec2Exception) Ec2Exception.builder()
