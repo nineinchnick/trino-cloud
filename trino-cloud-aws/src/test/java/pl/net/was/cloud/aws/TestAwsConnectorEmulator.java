@@ -38,6 +38,7 @@ final class TestAwsConnectorEmulator
         extends AbstractTestQueryFramework
 {
     private static final String MISSING_INSTANCE_ID = "i-0123456789abcdef0";
+    private static final String IMAGE_NAME = "amzn2-ami-hvm-2.0.20230404.0-x86_64-gp2";
     // Floci doesn't support DescribePlacementGroups, DescribePublicIpv4Pools and DescribeVpnConnections,
     // so placement_groups, public_ipv4_pools and vpn_connections are only covered by TestAwsQueriesRealAccount
     private static final List<String> EC2_TABLES_WITHOUT_REQUIRED_FILTERS = List.of(
@@ -262,7 +263,17 @@ final class TestAwsConnectorEmulator
     void testImageById()
     {
         assertThat(query("SELECT name, owner_id FROM aws.ec2.images WHERE image_id = '%s'".formatted(IMAGE_ID)))
-                .matches("VALUES (VARCHAR 'amzn2-ami-hvm-2.0.20230404.0-x86_64-gp2', VARCHAR '%s')".formatted(IMAGE_OWNER_ID));
+                .matches("VALUES (VARCHAR '%s', VARCHAR '%s')".formatted(IMAGE_NAME, IMAGE_OWNER_ID));
+    }
+
+    @Test
+    void testImagesByName()
+    {
+        assertThat(query("SELECT image_id FROM aws.ec2.images WHERE owner_id = '%s' AND name IN ('%s', 'missing')".formatted(IMAGE_OWNER_ID, IMAGE_NAME)))
+                .matches("VALUES VARCHAR '%s'".formatted(IMAGE_ID));
+        // EC2 treats * and ? in filter values as wildcards, but SQL equality must not
+        assertQueryReturnsEmptyResult("SELECT image_id FROM aws.ec2.images WHERE owner_id = '%s' AND name = 'amzn2*'".formatted(IMAGE_OWNER_ID));
+        assertQueryReturnsEmptyResult("SELECT image_id FROM aws.ec2.images WHERE owner_id = '%s' AND name = 'amzn2-ami-hvm-2.0.20230404.0-x86_64-gp?'".formatted(IMAGE_OWNER_ID));
     }
 
     @Test

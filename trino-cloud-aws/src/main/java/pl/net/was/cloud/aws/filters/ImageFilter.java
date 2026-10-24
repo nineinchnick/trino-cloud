@@ -32,10 +32,12 @@ public class ImageFilter
     }
 
     // owners can be given as aliases, like self or amazon, but the owner_id column always holds account IDs.
+    // EC2 filter values treat * and ? as wildcards, so the name filter can match more images than requested.
+    // AMI names can't contain *, ? or \, so a pattern always matches a superset of the exact name.
     // AWS matches image IDs exactly, but Trino still checks them, so the row source can use either the parameter or the filter.
     @Override
     public Set<String> getUnenforcedFilters()
     {
-        return Set.of("owner_id", "image_id");
+        return Set.of("owner_id", "image_id", "name");
     }
 }
