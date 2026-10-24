@@ -53,6 +53,6 @@ public class AwsSplitManager
         tables.require(tableHandle.schemaTableName())
                 .filterApplier()
                 .ifPresent(filterApplier -> filterApplier.checkRequiredFilters(tableHandle));
-        return new FixedSplitSource(ImmutableList.of(new AwsConnectorSplit(tableHandle)));
+        return new FixedSplitSource(ImmutableList.of(AwsConnectorSplit.WHOLE_TABLE));
     }
 }
