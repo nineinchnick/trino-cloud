@@ -29,7 +29,9 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public final class AwsOutputTableHandle
-        implements ConnectorOutputTableHandle, ConnectorInsertTableHandle, ConnectorMergeTableHandle
+        implements ConnectorInsertTableHandle,
+                   ConnectorMergeTableHandle,
+                   ConnectorOutputTableHandle
 {
     private final AwsTableHandle tableHandle;
     private final List<String> columnNames;

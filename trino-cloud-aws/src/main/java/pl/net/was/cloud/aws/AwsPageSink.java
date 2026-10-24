@@ -105,9 +105,7 @@ public class AwsPageSink
 
     @SuppressWarnings("unused")
     @Override
-    public void abort()
-    {
-    }
+    public void abort() {}
 
     private AwsRequest.Builder setFields(Page page, int position, AwsRequest.Builder request)
     {

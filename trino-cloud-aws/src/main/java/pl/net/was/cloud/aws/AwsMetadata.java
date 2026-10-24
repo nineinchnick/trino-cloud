@@ -33,8 +33,8 @@ import io.trino.spi.connector.ConnectorTableProperties;
 import io.trino.spi.connector.ConnectorTableVersion;
 import io.trino.spi.connector.Constraint;
 import io.trino.spi.connector.ConstraintApplicationResult;
-import io.trino.spi.connector.RetryMode;
 import io.trino.spi.connector.RelationColumnsMetadata;
+import io.trino.spi.connector.RetryMode;
 import io.trino.spi.connector.RowChangeParadigm;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.statistics.ComputedStatistics;
@@ -401,8 +401,7 @@ public class AwsMetadata
             List<ConnectorTableHandle> sourceTableHandles,
             Collection<Slice> fragments,
             Collection<ComputedStatistics> computedStatistics)
-    {
-    }
+    {}
 
     private ColumnHandle getRowId(AwsTableHandle tableHandle)
     {
