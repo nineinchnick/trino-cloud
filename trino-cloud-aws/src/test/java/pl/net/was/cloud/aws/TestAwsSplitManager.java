@@ -37,6 +37,7 @@ import software.amazon.awssdk.services.s3.S3Client;
 
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
@@ -194,9 +195,9 @@ final class TestAwsSplitManager
             }
 
             @Override
-            public Map<String, List<String>> getKnownValues()
+            public Map<String, Supplier<List<String>>> getKnownValues()
             {
-                return Map.of("owner_id", List.of("owner-a", "owner-b"));
+                return Map.of("owner_id", () -> List.of("owner-a", "owner-b"));
             }
         };
         AwsTable table = AwsTable.builder(new SchemaTableName("test", "vpcs"), SdkTableColumns.of(Vpc.builder().sdkFields()))

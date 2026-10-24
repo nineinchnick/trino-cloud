@@ -52,8 +52,8 @@ public class RegionFilter
     }
 
     @Override
-    public Map<String, List<String>> getKnownValues()
+    public Map<String, Supplier<List<String>>> getKnownValues()
     {
-        return Map.of(REGION_COLUMN, regions.get());
+        return Map.of(REGION_COLUMN, regions);
     }
 }
