@@ -258,22 +258,15 @@ public class AwsTables
         if (!volumeIds.isEmpty()) {
             request.filters(Filter.builder().name("volume-id").values(volumeIds).build());
         }
-        if (snapshotIds.isEmpty()) {
-            return describeSnapshots(ec2, request.ownerIds(ownersOrSelf(owners)).build());
-        }
-        if (!owners.isEmpty()) {
-            request.ownerIds(owners);
+        // snapshot IDs alone limit the results, and can refer to public or shared snapshots
+        if (snapshotIds.isEmpty() || !owners.isEmpty()) {
+            request.ownerIds(ownersOrSelf(owners));
         }
         DescribeSnapshotsRequest baseRequest = request.build();
-        // AWS fails the whole request when any of the snapshot IDs doesn't exist, so describe each snapshot separately
-        return Iterables.concat(Lists.transform(
-                snapshotIds,
-                snapshotId -> describeSnapshots(ec2, baseRequest.toBuilder().snapshotIds(snapshotId).build())));
-    }
-
-    private static Iterable<List<?>> describeSnapshots(Ec2Client ec2, DescribeSnapshotsRequest request)
-    {
-        return encodeRows(emptyOnErrorCodes(ec2.describeSnapshotsPaginator(request).snapshots(), MISSING_SNAPSHOT_CODES), List.of());
+        Iterable<Snapshot> snapshots = snapshotIds.isEmpty()
+                ? ec2.describeSnapshotsPaginator(baseRequest).snapshots()
+                : describeByIds(snapshotIds, MISSING_SNAPSHOT_CODES, ids -> ec2.describeSnapshotsPaginator(baseRequest.toBuilder().snapshotIds(ids).build()).snapshots());
+        return encodeRows(snapshots, List.of());
     }
 
     // the ID request parameters are much faster than the ID filters, which make AWS check all public images or snapshots without an owner,
