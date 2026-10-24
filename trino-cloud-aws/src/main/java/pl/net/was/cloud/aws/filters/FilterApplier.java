@@ -56,6 +56,8 @@ import static pl.net.was.cloud.aws.filters.FilterType.EQUAL;
 public interface FilterApplier
 {
     Logger log = Logger.get(FilterApplier.class);
+    // keeps EC2 requests well under the limit of filter values, while dividing large IN lists into parallel splits
+    int ID_BATCH_SIZE = 100;
 
     Map<String, FilterType> getSupportedFilters();
 
@@ -74,6 +76,15 @@ public interface FilterApplier
     default Set<String> getRequiredFilters()
     {
         return Set.of();
+    }
+
+    /**
+     * Maximum number of values of a supported filter that a single AWS request accepts.
+     * Scans filtered on more values are divided into splits, which can be read in parallel.
+     */
+    default Map<String, Integer> getSplitBatchSizes()
+    {
+        return Map.of();
     }
 
     default Optional<ConstraintApplicationResult<ConnectorTableHandle>> applyFilter(

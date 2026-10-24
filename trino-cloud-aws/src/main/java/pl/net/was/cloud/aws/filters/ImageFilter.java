@@ -40,4 +40,10 @@ public class ImageFilter
     {
         return Set.of("owner_id", "image_id", "name");
     }
+
+    @Override
+    public Map<String, Integer> getSplitBatchSizes()
+    {
+        return Map.of("image_id", ID_BATCH_SIZE);
+    }
 }

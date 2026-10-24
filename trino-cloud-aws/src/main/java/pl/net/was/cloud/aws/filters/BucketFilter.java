@@ -34,4 +34,11 @@ public class BucketFilter
     {
         return Set.of("bucket_name");
     }
+
+    // every bucket is listed by a separate request
+    @Override
+    public Map<String, Integer> getSplitBatchSizes()
+    {
+        return Map.of("bucket_name", 1);
+    }
 }

@@ -304,6 +304,11 @@ Tables with a **Required filters** column value fail with the
 `IN` predicate on that column, because the AWS API can't list the resources
 without it.
 
+When a pushed-down `IN` predicate lists more values than a single AWS request
+accepts, the scan is divided into splits that run in parallel on multiple
+workers: one split per bucket for the `s3` object tables, and one split per batch
+of 100 instance, image or snapshot IDs.
+
 ## `ec2` schema
 
 The tables in the `ec2` schema list resources in the region of the catalog.
@@ -507,8 +512,8 @@ AWS connector error codes:
 - A catalog queries a single region. To query multiple regions, create a
   catalog for every region, see
   [#291](https://github.com/nineinchnick/trino-cloud/issues/291).
-- Every table scan is a single split, which runs on one worker, see
-  [#294](https://github.com/nineinchnick/trino-cloud/issues/294).
+- Other scans run in a single split on one worker, because AWS returns the pages
+  of a list operation one after another.
 - The connector doesn't provide table or column statistics, so the cost-based
   optimizer can't estimate the size of the tables.
 - Only the filters listed in [Tables](#tables) are pushed down. `LIMIT` and other
