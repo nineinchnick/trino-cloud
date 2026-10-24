@@ -21,6 +21,7 @@ import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.type.Type;
 import pl.net.was.cloud.aws.SdkRowEncoder.ColumnWriter;
 import software.amazon.awssdk.core.SdkField;
+import software.amazon.awssdk.core.SdkPojo;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -51,14 +52,17 @@ public final class SdkTableColumns
         this.columnWriters = ImmutableList.copyOf(columnWriters);
     }
 
-    public static SdkTableColumns of(List<SdkField<?>> sdkFields)
+    /**
+     * The model is an SDK model object or builder, like {@code Instance.builder()}.
+     */
+    public static SdkTableColumns of(SdkPojo model)
     {
-        return builder(sdkFields).build();
+        return builder(model).build();
     }
 
-    public static Builder builder(List<SdkField<?>> sdkFields)
+    public static Builder builder(SdkPojo model)
     {
-        return new Builder(sdkFields);
+        return new Builder(model);
     }
 
     public List<ColumnMetadata> columnMetadata()
@@ -76,13 +80,13 @@ public final class SdkTableColumns
 
     public static final class Builder
     {
-        private final List<SdkField<?>> sdkFields;
+        private final SdkPojo model;
         private final List<DerivedColumn> prependedColumns = new ArrayList<>();
         private final ListMultimap<String, DerivedColumn> insertedColumns = ArrayListMultimap.create();
 
-        private Builder(List<SdkField<?>> sdkFields)
+        private Builder(SdkPojo model)
         {
-            this.sdkFields = ImmutableList.copyOf(requireNonNull(sdkFields, "sdkFields is null"));
+            this.model = requireNonNull(model, "model is null");
         }
 
         /**
@@ -120,8 +124,8 @@ public final class SdkTableColumns
 
         public SdkTableColumns build()
         {
-            List<SdkField<?>> fields = mappedFields(sdkFields);
-            List<ColumnMetadata> fieldColumns = SdkColumns.columns(sdkFields);
+            List<SdkField<?>> fields = mappedFields(model);
+            List<ColumnMetadata> fieldColumns = SdkColumns.columns(model);
             Set<String> fieldColumnNames = fieldColumns.stream().map(ColumnMetadata::getName).collect(toImmutableSet());
             checkArgument(fieldColumnNames.containsAll(insertedColumns.keySet()), "Columns %s are not all in %s", insertedColumns.keySet(), fieldColumnNames);
 

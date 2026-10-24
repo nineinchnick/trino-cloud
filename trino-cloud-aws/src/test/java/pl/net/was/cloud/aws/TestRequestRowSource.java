@@ -51,7 +51,7 @@ final class TestRequestRowSource
     private final List<DescribeImagesRequest> requests = new ArrayList<>();
     private final AwsTable table = AwsTable.builder(
                     new SchemaTableName("ec2", "images"),
-                    SdkTableColumns.builder(Image.builder().sdkFields())
+                    SdkTableColumns.builder(Image.builder())
                             .prepend(new ColumnMetadata("region", VARCHAR), row -> row.requestValue("region"))
                             .build())
             .rowSource(RequestRowSource.partitioned(region -> "client-" + region, DescribeImagesRequest::builder, this::describeImages))

@@ -36,7 +36,7 @@ final class TestSdkTableColumns
     @Test
     void testDerivedColumnsArePlacedBeforeOrAfterFieldColumns()
     {
-        SdkTableColumns columns = SdkTableColumns.builder(S3Object.builder().sdkFields())
+        SdkTableColumns columns = SdkTableColumns.builder(S3Object.builder())
                 .prepend(new ColumnMetadata("bucket_name", VARCHAR), row -> row.requestValue("bucket_name"))
                 .insertAfter("key", new ColumnMetadata("key_length", BIGINT), row -> (long) ((S3Object) row.object()).key().length())
                 .insertAfter("key", new ColumnMetadata("upper_key", VARCHAR), row -> utf8Slice(((S3Object) row.object()).key().toUpperCase(ENGLISH)))
@@ -58,7 +58,7 @@ final class TestSdkTableColumns
     @Test
     void testDerivedColumnValueCanBeNull()
     {
-        SdkTableColumns columns = SdkTableColumns.builder(S3Object.builder().sdkFields())
+        SdkTableColumns columns = SdkTableColumns.builder(S3Object.builder())
                 .prepend(new ColumnMetadata("bucket_name", VARCHAR), row -> row.requestValue("bucket_name"))
                 .build();
 
@@ -68,7 +68,7 @@ final class TestSdkTableColumns
     @Test
     void testInputOnlyColumn()
     {
-        SdkTableColumns columns = SdkTableColumns.builder(S3Object.builder().sdkFields())
+        SdkTableColumns columns = SdkTableColumns.builder(S3Object.builder())
                 .prependInputOnly("source", VARCHAR)
                 .build();
 
@@ -83,7 +83,7 @@ final class TestSdkTableColumns
     @Test
     void testInsertAfterUnknownColumn()
     {
-        assertThatThrownBy(() -> SdkTableColumns.builder(S3Object.builder().sdkFields())
+        assertThatThrownBy(() -> SdkTableColumns.builder(S3Object.builder())
                 .insertAfter("unknown", new ColumnMetadata("derived", VARCHAR), _ -> null)
                 .build())
                 .isInstanceOf(IllegalArgumentException.class)
@@ -93,7 +93,7 @@ final class TestSdkTableColumns
     @Test
     void testDuplicateDerivedColumn()
     {
-        assertThatThrownBy(() -> SdkTableColumns.builder(S3Object.builder().sdkFields())
+        assertThatThrownBy(() -> SdkTableColumns.builder(S3Object.builder())
                 .insertAfter("key", new ColumnMetadata("size", BIGINT), _ -> null)
                 .build())
                 .isInstanceOf(IllegalArgumentException.class)

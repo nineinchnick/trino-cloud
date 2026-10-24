@@ -22,6 +22,7 @@ import io.trino.spi.type.RowType;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeOperators;
 import software.amazon.awssdk.core.SdkField;
+import software.amazon.awssdk.core.SdkPojo;
 import software.amazon.awssdk.core.protocol.MarshallingType;
 import software.amazon.awssdk.core.traits.ListTrait;
 import software.amazon.awssdk.core.traits.MapTrait;
@@ -85,15 +86,17 @@ final class SdkColumns
     private static final MapType KEY_VALUE_MAP_TYPE = new MapType(VARCHAR, VARCHAR, TYPE_OPERATORS);
     // SdkField doesn't override equals, but every field is a constant of an SDK model class, so there's a bounded number of them
     private static final Map<SdkField<?>, Type> FIELD_TYPES = new ConcurrentHashMap<>();
+    // keyed by the class of SDK models and their builders, which have constant lists of fields, so there's a bounded number of them
+    private static final Map<Class<?>, List<SdkField<?>>> MAPPED_FIELDS = new ConcurrentHashMap<>();
 
     private SdkColumns() {}
 
     /**
-     * Columns mapped from the fields, in the same order as {@link #mappedFields(List)}.
+     * Columns mapped from the fields of an SDK model object or builder, in the same order as {@link #mappedFields(SdkPojo)}.
      */
-    public static List<ColumnMetadata> columns(List<SdkField<?>> sdkFields)
+    public static List<ColumnMetadata> columns(SdkPojo model)
     {
-        List<ColumnMetadata> columns = mappedFields(sdkFields).stream()
+        List<ColumnMetadata> columns = mappedFields(model).stream()
                 .map(field -> new ColumnMetadata(columnName(field), type(field)))
                 .collect(toImmutableList());
         checkUniqueNames(columns.stream().map(ColumnMetadata::getName).toList());
@@ -112,13 +115,13 @@ final class SdkColumns
     }
 
     /**
-     * Fields that are mapped to columns or row fields, in the same order as the columns or row fields.
+     * Fields of an SDK model object or builder that are mapped to columns or row fields, in the same order as the columns or row fields.
      */
-    public static List<SdkField<?>> mappedFields(List<SdkField<?>> sdkFields)
+    public static List<SdkField<?>> mappedFields(SdkPojo model)
     {
-        return sdkFields.stream()
+        return MAPPED_FIELDS.computeIfAbsent(model.getClass(), _ -> model.sdkFields().stream()
                 .filter(field -> field.marshallingType() != MarshallingType.NULL)
-                .collect(toImmutableList());
+                .collect(toImmutableList()));
     }
 
     public static Type type(SdkField<?> field)
@@ -148,7 +151,7 @@ final class SdkColumns
             if (depth >= MAX_NESTING_DEPTH) {
                 return VARCHAR;
             }
-            return rowType(mappedFields(field.constructor().get().sdkFields()), depth + 1);
+            return rowType(mappedFields(field.constructor().get()), depth + 1);
         }
         if (sdkType == MarshallingType.LIST) {
             if (isKeyValueList(field)) {
