@@ -155,6 +155,42 @@ final class TestFilterApplier
     }
 
     @Test
+    void testRemovesLowerBoundFromRemainingFilter()
+    {
+        AwsTableHandle table = new AwsTableHandle(new SchemaTableName("s3", "objects"));
+
+        Optional<ConstraintApplicationResult<ConnectorTableHandle>> result = applyFilter(table, Map.of(SIZE, greaterThanOrEqual(10)));
+
+        assertThat(result).isPresent();
+        assertThat(result.orElseThrow().getRemainingFilter().isAll()).isTrue();
+    }
+
+    @Test
+    void testKeepsUpperBoundInRemainingFilter()
+    {
+        AwsTableHandle table = new AwsTableHandle(new SchemaTableName("s3", "objects"));
+        Domain range = Domain.create(ValueSet.ofRanges(Range.range(BIGINT, 10L, true, 20L, false)), false);
+        TupleDomain<ColumnHandle> summary = TupleDomain.withColumnDomains(Map.of(SIZE, range));
+
+        Optional<ConstraintApplicationResult<ConnectorTableHandle>> result = FILTER_APPLIER.applyFilter(table, COLUMNS, SUPPORTED_FILTERS, new Constraint(summary));
+
+        assertThat(result).isPresent();
+        AwsTableHandle newTable = (AwsTableHandle) result.orElseThrow().getHandle();
+        assertThat(newTable.constraint()).isEqualTo(TupleDomain.withColumnDomains(Map.of(SIZE, greaterThanOrEqual(10))));
+        assertThat(result.orElseThrow().getRemainingFilter()).isEqualTo(summary);
+        assertThat(FILTER_APPLIER.applyFilter(newTable, COLUMNS, SUPPORTED_FILTERS, new Constraint(summary))).isEmpty();
+    }
+
+    @Test
+    void testDeclinesLowerBoundAllowingNulls()
+    {
+        AwsTableHandle table = new AwsTableHandle(new SchemaTableName("s3", "objects"));
+        Domain lowerBoundOrNull = Domain.create(ValueSet.ofRanges(Range.greaterThanOrEqual(BIGINT, 10L)), true);
+
+        assertThat(applyFilter(table, Map.of(SIZE, lowerBoundOrNull))).isEmpty();
+    }
+
+    @Test
     void testDeclinesWeakerLowerBound()
     {
         AwsTableHandle table = new AwsTableHandle(new SchemaTableName("s3", "objects"))
