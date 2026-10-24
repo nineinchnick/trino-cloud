@@ -85,9 +85,14 @@ final class SdkRowEncoder
             }
             return ((Instant) o).getEpochSecond() * MICROSECONDS_PER_SECOND;
         }
+        if (sdkType == MarshallingType.FLOAT) {
+            if (o == null) {
+                return null;
+            }
+            return (long) Float.floatToIntBits((Float) o);
+        }
         if (sdkType == MarshallingType.SHORT || sdkType == MarshallingType.INTEGER || sdkType == MarshallingType.LONG
-                || sdkType == MarshallingType.FLOAT || sdkType == MarshallingType.DOUBLE
-                || sdkType == MarshallingType.BOOLEAN) {
+                || sdkType == MarshallingType.DOUBLE || sdkType == MarshallingType.BOOLEAN) {
             return o;
         }
         if (sdkType == MarshallingType.SDK_POJO) {
