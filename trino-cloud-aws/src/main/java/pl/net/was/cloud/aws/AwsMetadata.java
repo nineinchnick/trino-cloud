@@ -126,8 +126,8 @@ public class AwsMetadata
             ConnectorTableHandle connectorTableHandle,
             ColumnHandle columnHandle)
     {
-        AwsColumnHandle restColumnHandle = (AwsColumnHandle) columnHandle;
-        return new ColumnMetadata(restColumnHandle.name(), restColumnHandle.type());
+        AwsTableHandle tableHandle = (AwsTableHandle) connectorTableHandle;
+        return tables.require(tableHandle.schemaTableName()).column(((AwsColumnHandle) columnHandle).name());
     }
 
     @Override

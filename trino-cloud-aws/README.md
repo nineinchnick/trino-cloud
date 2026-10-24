@@ -307,7 +307,8 @@ Some tables have columns that differ from the SDK model:
   `state.name`, like `running`, so the state can be changed by updating a
   single value.
 - The `instance_id` column of `ec2.images` is always `NULL` when reading. It
-  sets the instance to create the image from when inserting.
+  sets the instance to create the image from when inserting. Its comment, shown
+  by `DESCRIBE` and in `information_schema.columns`, says so.
 - The `bucket_name` column of the `s3.objects`, `s3.object_versions` and
   `s3.deleted_objects` tables is the name of the listed bucket, taken from the
   required filter.
@@ -326,7 +327,8 @@ other predicates after reading every row returned by the AWS API operation.
 Tables with a **Required filters** column value fail with the
 `AWS_MISSING_PREDICATE` error code when the query doesn't have an equality or
 `IN` predicate on that column, because the AWS API can't list the resources
-without it.
+without it. The comments of these columns, shown by `DESCRIBE` and in
+`information_schema.columns`, name the required filters.
 
 When a pushed-down `IN` predicate lists more values than a single AWS request
 accepts, the scan is divided into splits that run in parallel on multiple

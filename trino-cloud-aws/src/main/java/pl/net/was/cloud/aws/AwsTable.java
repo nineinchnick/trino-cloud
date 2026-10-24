@@ -24,6 +24,7 @@ import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.type.Type;
 import pl.net.was.cloud.aws.SdkRowEncoder.ColumnWriter;
 import pl.net.was.cloud.aws.filters.FilterApplier;
+import pl.net.was.cloud.aws.filters.FilterType;
 import software.amazon.awssdk.awscore.AwsRequest;
 import software.amazon.awssdk.core.exception.SdkException;
 
@@ -37,8 +38,10 @@ import java.util.function.Supplier;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
+import static java.util.function.Function.identity;
 import static pl.net.was.cloud.aws.SdkIterables.translateErrors;
 
 public final class AwsTable
@@ -47,6 +50,7 @@ public final class AwsTable
 
     private final SchemaTableName name;
     private final List<ColumnMetadata> columns;
+    private final Map<String, ColumnMetadata> columnsByName;
     private final Map<String, ColumnHandle> columnHandles;
     private final Map<String, ColumnWriter> columnWriters;
     private final RowSource rowSource;
@@ -60,7 +64,10 @@ public final class AwsTable
     {
         this.name = requireNonNull(builder.name, "name is null");
         requireNonNull(builder.columns, "columns is null");
-        this.columns = ImmutableList.copyOf(builder.columns.columnMetadata());
+        this.filterApplier = Optional.ofNullable(builder.filterApplier);
+        this.columns = withRequiredFilterComments(builder.columns.columnMetadata(), filterApplier);
+        this.columnsByName = columns.stream()
+                .collect(toImmutableMap(ColumnMetadata::getName, identity()));
         this.columnHandles = columns.stream()
                 .collect(toImmutableMap(ColumnMetadata::getName, column -> new AwsColumnHandle(column.getName(), column.getType())));
         List<ColumnWriter> writers = builder.columns.columnWriters();
@@ -70,7 +77,6 @@ public final class AwsTable
         }
         this.columnWriters = columnWriters.buildOrThrow();
         this.rowSource = requireNonNull(builder.rowSource, "rowSource is null");
-        this.filterApplier = Optional.ofNullable(builder.filterApplier);
         this.primaryKey = Optional.ofNullable(builder.primaryKey);
         this.inserter = Optional.ofNullable(builder.inserter);
         this.updater = Optional.ofNullable(builder.updater);
@@ -95,6 +101,13 @@ public final class AwsTable
     public List<ColumnMetadata> columns()
     {
         return columns;
+    }
+
+    public ColumnMetadata column(String columnName)
+    {
+        ColumnMetadata column = columnsByName.get(columnName);
+        checkArgument(column != null, "Column %s does not exist in %s", columnName, name);
+        return column;
     }
 
     public Map<String, ColumnHandle> columnHandles()
@@ -165,6 +178,35 @@ public final class AwsTable
     public boolean supportsMerge()
     {
         return updater.isPresent() || deleter.isPresent();
+    }
+
+    // without the comments, users only find out about required filters from the error of a query that doesn't have them
+    private static List<ColumnMetadata> withRequiredFilterComments(List<ColumnMetadata> columns, Optional<FilterApplier> filterApplier)
+    {
+        if (filterApplier.isEmpty()) {
+            return ImmutableList.copyOf(columns);
+        }
+        Map<String, FilterType> supportedFilters = filterApplier.get().getSupportedFilters();
+        Set<String> requiredFilters = filterApplier.get().getRequiredFilters();
+        requiredFilters.forEach(column -> checkArgument(supportedFilters.containsKey(column), "Required filter %s is not a supported filter", column));
+        return columns.stream()
+                .map(column -> {
+                    if (!requiredFilters.contains(column.getName())) {
+                        return column;
+                    }
+                    return withComment(column, "Required filter: use %s".formatted(supportedFilters.get(column.getName()).operators()));
+                })
+                .collect(toImmutableList());
+    }
+
+    private static ColumnMetadata withComment(ColumnMetadata column, String comment)
+    {
+        String combinedComment = column.getComment()
+                .map(existingComment -> existingComment + ". " + comment)
+                .orElse(comment);
+        return ColumnMetadata.builderFrom(column)
+                .setComment(Optional.of(combinedComment))
+                .build();
     }
 
     @FunctionalInterface

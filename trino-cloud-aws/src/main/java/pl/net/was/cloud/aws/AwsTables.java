@@ -144,7 +144,7 @@ public class AwsTables
                                         // populate row_id - to support DELETE
                                         .prepend(rowIdColumn(), row -> regionalRowId(row, ((Image) row.object()).imageId()))
                                         // populate instance_id - to support INSERT
-                                        .prepend(new ColumnMetadata("instance_id", VARCHAR), _ -> null),
+                                        .prependInputOnly("instance_id", VARCHAR),
                                 AwsTables::images,
                                 new ImageFilter())
                                 .primaryKey("image_id")

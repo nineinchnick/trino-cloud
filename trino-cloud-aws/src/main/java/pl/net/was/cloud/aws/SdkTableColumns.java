@@ -18,11 +18,13 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ListMultimap;
 import io.trino.spi.connector.ColumnMetadata;
+import io.trino.spi.type.Type;
 import pl.net.was.cloud.aws.SdkRowEncoder.ColumnWriter;
 import software.amazon.awssdk.core.SdkField;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 
@@ -38,6 +40,8 @@ import static pl.net.was.cloud.aws.SdkColumns.mappedFields;
  */
 public final class SdkTableColumns
 {
+    static final String INPUT_ONLY_COMMENT = "Only used by INSERT, always NULL when reading";
+
     private final List<ColumnMetadata> columnMetadata;
     private final List<ColumnWriter> columnWriters;
 
@@ -88,6 +92,21 @@ public final class SdkTableColumns
         {
             prependedColumns.add(new DerivedColumn(column, value));
             return this;
+        }
+
+        /**
+         * Input-only columns set request fields when inserting, but the SDK model of the listed resources doesn't have them,
+         * so they're always NULL when reading.
+         */
+        public Builder prependInputOnly(String name, Type type)
+        {
+            return prepend(
+                    ColumnMetadata.builder()
+                            .setName(name)
+                            .setType(type)
+                            .setComment(Optional.of(INPUT_ONLY_COMMENT))
+                            .build(),
+                    _ -> null);
         }
 
         /**
