@@ -243,11 +243,9 @@ final class TestAwsConnectorEmulator
     @Test
     void testTags()
     {
-        // TODO #287 the columns come from Tag instead of TagDescription, so value is the resource ID,
-        // and resource_id and resource_type are missing
         assertQuery(
-                "SELECT key, value FROM aws.ec2.tags WHERE value = '%s'".formatted(testData.vpcId()),
-                "VALUES ('Name', '%s')".formatted(testData.vpcId()));
+                "SELECT key, resource_id, resource_type, value FROM aws.ec2.tags WHERE resource_id = '%s'".formatted(testData.vpcId()),
+                "VALUES ('Name', '%s', 'vpc', '%s')".formatted(testData.vpcId(), NAME));
     }
 
     @Test
