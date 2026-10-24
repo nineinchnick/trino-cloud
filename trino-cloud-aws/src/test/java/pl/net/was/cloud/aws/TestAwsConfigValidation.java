@@ -14,6 +14,7 @@
 
 package pl.net.was.cloud.aws;
 
+import io.opentelemetry.api.OpenTelemetry;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotBlank;
 import org.junit.jupiter.api.Test;
@@ -101,7 +102,7 @@ final class TestAwsConfigValidation
     @Test
     void testConfiguredRegion()
     {
-        AwsClientConfigurer configurer = new AwsClientConfigurer(new AwsConfig().setRegion("eu-central-1"));
+        AwsClientConfigurer configurer = new AwsClientConfigurer(new AwsConfig().setRegion("eu-central-1"), OpenTelemetry.noop());
 
         try (Ec2Client client = configurer.configure(Ec2Client.builder()).build()) {
             assertThat(client.serviceClientConfiguration().region()).isEqualTo(Region.EU_CENTRAL_1);
@@ -111,7 +112,7 @@ final class TestAwsConfigValidation
     @Test
     void testUnknownRegion()
     {
-        assertThatThrownBy(() -> new AwsClientConfigurer(new AwsConfig().setRegion("eu-centrall-1")))
+        assertThatThrownBy(() -> new AwsClientConfigurer(new AwsConfig().setRegion("eu-centrall-1"), OpenTelemetry.noop()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageStartingWith("Unknown AWS region 'eu-centrall-1', set aws.region to one of: ")
                 .hasMessageContaining("eu-central-1");
@@ -122,7 +123,7 @@ final class TestAwsConfigValidation
     {
         AwsClientConfigurer configurer = new AwsClientConfigurer(new AwsConfig()
                 .setRegion("us-east-1")
-                .setEndpoint(URI.create("http://localhost:4566")));
+                .setEndpoint(URI.create("http://localhost:4566")), OpenTelemetry.noop());
 
         try (Ec2Client client = configurer.configure(Ec2Client.builder()).build()) {
             assertThat(client.serviceClientConfiguration().endpointOverride()).contains(URI.create("http://localhost:4566"));
@@ -135,7 +136,7 @@ final class TestAwsConfigValidation
         AwsClientConfigurer configurer = new AwsClientConfigurer(new AwsConfig()
                 .setRegion("us-east-1")
                 .setAccessKey("access")
-                .setSecretKey("secret"));
+                .setSecretKey("secret"), OpenTelemetry.noop());
 
         try (Ec2Client client = configurer.configure(Ec2Client.builder()).build()) {
             StaticCredentialsProvider credentialsProvider = (StaticCredentialsProvider) client.serviceClientConfiguration().credentialsProvider();
@@ -153,7 +154,7 @@ final class TestAwsConfigValidation
                 .setRegion("us-east-1")
                 .setAccessKey("access")
                 .setSecretKey("secret")
-                .setIamRole("arn:aws:iam::123456789012:role/trino"));
+                .setIamRole("arn:aws:iam::123456789012:role/trino"), OpenTelemetry.noop());
 
         try (Ec2Client client = configurer.configure(Ec2Client.builder()).build()) {
             assertThat(client.serviceClientConfiguration().credentialsProvider()).isInstanceOf(StsAssumeRoleCredentialsProvider.class);

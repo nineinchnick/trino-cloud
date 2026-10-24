@@ -15,6 +15,8 @@
 package pl.net.was.cloud.aws;
 
 import com.google.inject.Inject;
+import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.instrumentation.awssdk.v2_2.AwsSdkTelemetry;
 import pl.net.was.cloud.aws.AwsConfig.RetryMode;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
@@ -26,6 +28,7 @@ import software.amazon.awssdk.awscore.client.builder.AwsSyncClientBuilder;
 import software.amazon.awssdk.awscore.retry.AwsRetryStrategy;
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.core.exception.SdkClientException;
+import software.amazon.awssdk.core.interceptor.ExecutionInterceptor;
 import software.amazon.awssdk.http.apache5.Apache5HttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.regions.providers.DefaultAwsRegionProviderChain;
@@ -47,11 +50,12 @@ public class AwsClientConfigurer
     private final Optional<URI> endpoint;
     private final int maxConnections;
     private final RetryStrategy retryStrategy;
+    private final ExecutionInterceptor tracingInterceptor;
     private final Optional<StsClient> stsClient;
     private final AwsCredentialsProvider credentialsProvider;
 
     @Inject
-    public AwsClientConfigurer(AwsConfig config)
+    public AwsClientConfigurer(AwsConfig config, OpenTelemetry openTelemetry)
     {
         this.region = resolveRegion(config);
         this.endpoint = config.getEndpoint();
@@ -59,6 +63,11 @@ public class AwsClientConfigurer
         this.retryStrategy = retryStrategy(config.getRetryMode()).toBuilder()
                 .maxAttempts(config.getMaxErrorRetries() + 1)
                 .build();
+        this.tracingInterceptor = AwsSdkTelemetry.builder(openTelemetry)
+                .setCaptureExperimentalSpanAttributes(true)
+                .setRecordIndividualHttpError(true)
+                .build()
+                .createExecutionInterceptor();
         AwsCredentialsProvider sourceCredentialsProvider = createSourceCredentialsProvider(config);
         if (config.getIamRole().isEmpty()) {
             this.stsClient = Optional.empty();
@@ -146,6 +155,7 @@ public class AwsClientConfigurer
                 .maxConnections(maxConnections));
         builder.overrideConfiguration(ClientOverrideConfiguration.builder()
                 .retryStrategy(retryStrategy)
+                .addExecutionInterceptor(tracingInterceptor)
                 .build());
         return builder;
     }
