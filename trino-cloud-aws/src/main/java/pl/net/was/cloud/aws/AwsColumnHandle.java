@@ -14,14 +14,24 @@
 
 package pl.net.was.cloud.aws;
 
+import io.airlift.slice.SizeOf;
 import io.trino.spi.connector.ColumnHandle;
+import io.trino.spi.type.MapType;
 import io.trino.spi.type.Type;
 
+import java.util.Optional;
+
+import static com.google.common.base.Preconditions.checkArgument;
 import static io.airlift.slice.SizeOf.estimatedSizeOf;
 import static io.airlift.slice.SizeOf.instanceSize;
+import static io.airlift.slice.SizeOf.sizeOf;
 import static java.util.Objects.requireNonNull;
 
-public record AwsColumnHandle(String name, Type type)
+/**
+ * A column, or the value of a single entry of a map column, which is only used in pushed-down constraints,
+ * for predicates like tags['Name'] = 'value'.
+ */
+public record AwsColumnHandle(String name, Type type, Optional<String> mapKey)
         implements ColumnHandle
 {
     private static final int INSTANCE_SIZE = instanceSize(AwsColumnHandle.class);
@@ -30,11 +40,26 @@ public record AwsColumnHandle(String name, Type type)
     {
         requireNonNull(name, "name is null");
         requireNonNull(type, "type is null");
+        requireNonNull(mapKey, "mapKey is null");
+    }
+
+    public AwsColumnHandle(String name, Type type)
+    {
+        this(name, type, Optional.empty());
+    }
+
+    /**
+     * The type of the map entry is the type of the map values.
+     */
+    public static AwsColumnHandle mapEntry(AwsColumnHandle mapColumn, String key)
+    {
+        checkArgument(mapColumn.type() instanceof MapType && mapColumn.mapKey().isEmpty(), "Column %s is not a map: %s", mapColumn.name(), mapColumn.type());
+        return new AwsColumnHandle(mapColumn.name(), ((MapType) mapColumn.type()).getValueType(), Optional.of(key));
     }
 
     // type instances are shared, so they are not retained by the handle
     public long getRetainedSizeInBytes()
     {
-        return INSTANCE_SIZE + estimatedSizeOf(name);
+        return INSTANCE_SIZE + estimatedSizeOf(name) + sizeOf(mapKey, SizeOf::estimatedSizeOf);
     }
 }
