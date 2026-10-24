@@ -47,6 +47,7 @@ public class AwsModule
         binder.bind(TypeManager.class).toInstance(typeManager);
 
         binder.bind(AwsConnector.class).in(Scopes.SINGLETON);
+        binder.bind(AwsTables.class).in(Scopes.SINGLETON);
         binder.bind(AwsMetadata.class).in(Scopes.SINGLETON);
         binder.bind(AwsSplitManager.class).in(Scopes.SINGLETON);
         binder.bind(AwsRecordSetProvider.class).in(Scopes.SINGLETON);
