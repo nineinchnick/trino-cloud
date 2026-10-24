@@ -25,6 +25,11 @@ or use the Trino CLI included in the image:
 docker exec -it trino-cloud trino --catalog aws --schema ec2
 ```
 
+> Warning: the Docker image doesn't configure any authentication. Anyone who can reach port 8080
+> can run queries using the AWS credentials of the container. Only publish the port on trusted networks,
+> like `-p 127.0.0.1:8080:8080`, and use credentials with read-only permissions,
+> see [Read-only IAM policy](#read-only-iam-policy).
+
 # Usage
 
 Not all resources are mapped yet, here's a list of the available schemas and tables:
@@ -70,6 +75,18 @@ SELECT key, size FROM s3.objects WHERE bucket_name = 'my-bucket';
 
 Writes are disabled by default, so the connector can't create, modify or remove any AWS resources.
 To enable `INSERT`, `UPDATE` and `DELETE`, set `aws.read-only=false` in the catalog properties file.
+Every user who can access the catalog can then write, acting as the AWS identity of the connector,
+so use a separate catalog with its own credentials for writes, and limit who can access it
+with Trino [access control](https://trino.io/docs/current/security/built-in-system-access-control.html).
+
+Writes aren't transactional. Every row is a separate AWS API call, which can't be rolled back.
+If a statement fails, the resources created, modified or removed for earlier rows stay that way.
+The coordinator logs the IDs of the resources created by each `INSERT`,
+and workers log the resources created by an `INSERT` that failed.
+
+A single `INSERT` can insert up to `aws.max-inserted-rows` rows, 10 by default.
+When launching instances, the connector sets a client token derived from the query and the row,
+so if a request is sent again for the same row, it doesn't launch another instance.
 
 The following tables support inserting into:
 * `ec2.images`
@@ -167,6 +184,63 @@ aws.external-id=${ENV:STAGING_EXTERNAL_ID}
 
 Avoid putting secret keys directly in catalog files. Use environment variables instead, like
 `aws.secret-key=${ENV:STAGING_SECRET_KEY}`. Trino masks the value of `aws.secret-key` when it logs the configuration.
+
+## Read-only IAM policy
+
+With the default `aws.read-only=true`, the connector only needs permissions to list resources.
+Use an IAM policy like the following one, to make sure the connector can't change anything,
+even if writes are enabled by mistake:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DescribeEc2",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeAvailabilityZones",
+        "ec2:DescribeImages",
+        "ec2:DescribeInstanceTypes",
+        "ec2:DescribeInstances",
+        "ec2:DescribeKeyPairs",
+        "ec2:DescribeLaunchTemplates",
+        "ec2:DescribeNatGateways",
+        "ec2:DescribeNetworkInterfaces",
+        "ec2:DescribePlacementGroups",
+        "ec2:DescribePrefixLists",
+        "ec2:DescribePublicIpv4Pools",
+        "ec2:DescribeRegions",
+        "ec2:DescribeRouteTables",
+        "ec2:DescribeSecurityGroups",
+        "ec2:DescribeSnapshots",
+        "ec2:DescribeSubnets",
+        "ec2:DescribeTags",
+        "ec2:DescribeVolumes",
+        "ec2:DescribeVpcEndpoints",
+        "ec2:DescribeVpcPeeringConnections",
+        "ec2:DescribeVpcs",
+        "ec2:DescribeVpnConnections",
+        "ec2:DescribeVpnGateways"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ListS3",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListAllMyBuckets",
+        "s3:ListBucket",
+        "s3:ListBucketVersions"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+To limit the buckets that can be listed, replace the `Resource` of the `ListS3` statement
+with bucket ARNs, like `arn:aws:s3:::my-bucket`, and move `s3:ListAllMyBuckets` to a statement with `"Resource": "*"`.
 
 # Build
 
