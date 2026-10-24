@@ -148,6 +148,13 @@ final class TestAwsConnectorEmulator
     }
 
     @Test
+    void testMissingInstanceId()
+    {
+        assertQueryReturnsEmptyResult("SELECT instance_id FROM aws.ec2.instances WHERE instance_id = 'i-0123456789abcdef0'");
+        assertQueryReturnsEmptyResult("SELECT instance_id FROM aws.ec2.instances WHERE instance_id = 'not-an-instance-id'");
+    }
+
+    @Test
     void testInstanceIdInList()
     {
         // TODO #288 IN lists should be pushed down and return both instances
@@ -217,6 +224,13 @@ final class TestAwsConnectorEmulator
     {
         assertThat(query("SELECT name, owner_id FROM aws.ec2.images WHERE image_id = '%s'".formatted(IMAGE_ID)))
                 .matches("VALUES (VARCHAR 'amzn2-ami-hvm-2.0.20230404.0-x86_64-gp2', VARCHAR '%s')".formatted(IMAGE_OWNER_ID));
+    }
+
+    @Test
+    void testMissingImageId()
+    {
+        // Floci returns a made-up image for any well-formed image ID, so only a malformed ID can be tested
+        assertQueryReturnsEmptyResult("SELECT image_id FROM aws.ec2.images WHERE image_id = 'not-an-image-id'");
     }
 
     @Test
