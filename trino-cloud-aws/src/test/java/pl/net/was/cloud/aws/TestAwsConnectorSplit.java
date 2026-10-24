@@ -14,7 +14,6 @@
 
 package pl.net.was.cloud.aws;
 
-import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.predicate.Domain;
 import io.trino.spi.predicate.TupleDomain;
 import org.junit.jupiter.api.Test;
@@ -28,32 +27,28 @@ import static pl.net.was.cloud.aws.HandleJsonCodecs.roundTrip;
 
 final class TestAwsConnectorSplit
 {
-    private static final AwsTableHandle TABLE = new AwsTableHandle(new SchemaTableName("s3", "objects"));
-    private static final AwsTableHandle CONSTRAINED_TABLE = TABLE.withConstraint(TupleDomain.withColumnDomains(Map.of(
+    private static final AwsConnectorSplit BUCKET_SPLIT = new AwsConnectorSplit(TupleDomain.withColumnDomains(Map.of(
             new AwsColumnHandle("bucket_name", VARCHAR), Domain.singleValue(VARCHAR, utf8Slice("bucket")))));
 
     @Test
     void testJsonRoundTrip()
     {
-        AwsConnectorSplit split = new AwsConnectorSplit(CONSTRAINED_TABLE);
-
-        assertThat(roundTrip(AwsConnectorSplit.class, split)).isEqualTo(split);
+        assertThat(roundTrip(AwsConnectorSplit.class, BUCKET_SPLIT)).isEqualTo(BUCKET_SPLIT);
+        assertThat(roundTrip(AwsConnectorSplit.class, AwsConnectorSplit.WHOLE_TABLE)).isEqualTo(AwsConnectorSplit.WHOLE_TABLE);
     }
 
     @Test
     void testRemotelyAccessibleWithoutAddresses()
     {
-        AwsConnectorSplit split = new AwsConnectorSplit(TABLE);
-
-        assertThat(split.isRemotelyAccessible()).isTrue();
-        assertThat(split.getAddresses()).isEmpty();
+        assertThat(AwsConnectorSplit.WHOLE_TABLE.isRemotelyAccessible()).isTrue();
+        assertThat(AwsConnectorSplit.WHOLE_TABLE.getAddresses()).isEmpty();
     }
 
     @Test
     void testRetainedSizeIncludesConstraint()
     {
-        long unconstrainedSize = new AwsConnectorSplit(TABLE).getRetainedSizeInBytes();
-        long constrainedSize = new AwsConnectorSplit(CONSTRAINED_TABLE).getRetainedSizeInBytes();
+        long unconstrainedSize = AwsConnectorSplit.WHOLE_TABLE.getRetainedSizeInBytes();
+        long constrainedSize = BUCKET_SPLIT.getRetainedSizeInBytes();
 
         assertThat(unconstrainedSize).isPositive();
         assertThat(constrainedSize).isGreaterThan(unconstrainedSize);

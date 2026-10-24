@@ -14,24 +14,32 @@
 
 package pl.net.was.cloud.aws;
 
+import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ConnectorSplit;
+import io.trino.spi.predicate.TupleDomain;
 
 import static io.airlift.slice.SizeOf.instanceSize;
 import static java.util.Objects.requireNonNull;
 
-public record AwsConnectorSplit(AwsTableHandle tableHandle)
+/**
+ * A split reads the rows matching both the constraint of the table handle and the constraint of the split,
+ * which selects a part of the values of a pushed-down filter.
+ */
+public record AwsConnectorSplit(TupleDomain<ColumnHandle> constraint)
         implements ConnectorSplit
 {
+    public static final AwsConnectorSplit WHOLE_TABLE = new AwsConnectorSplit(TupleDomain.all());
+
     private static final int INSTANCE_SIZE = instanceSize(AwsConnectorSplit.class);
 
     public AwsConnectorSplit
     {
-        requireNonNull(tableHandle, "tableHandle is null");
+        requireNonNull(constraint, "constraint is null");
     }
 
     @Override
     public long getRetainedSizeInBytes()
     {
-        return INSTANCE_SIZE + tableHandle.getRetainedSizeInBytes();
+        return INSTANCE_SIZE + constraint.getRetainedSizeInBytes(column -> ((AwsColumnHandle) column).getRetainedSizeInBytes());
     }
 }
