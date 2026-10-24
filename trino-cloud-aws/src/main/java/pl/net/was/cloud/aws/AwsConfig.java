@@ -15,17 +15,23 @@
 package pl.net.was.cloud.aws;
 
 import io.airlift.configuration.Config;
+import io.airlift.configuration.ConfigDescription;
+import io.airlift.configuration.LegacyConfig;
+
+import java.util.Optional;
 
 public class AwsConfig
 {
     private String region;
 
-    public String getRegion()
+    public Optional<String> getRegion()
     {
-        return region;
+        return Optional.ofNullable(region);
     }
 
-    @Config("region")
+    @Config("aws.region")
+    @LegacyConfig("region")
+    @ConfigDescription("AWS region of the EC2 and S3 endpoints, defaults to the region resolved by the AWS SDK default region provider chain")
     public AwsConfig setRegion(String region)
     {
         this.region = region;
