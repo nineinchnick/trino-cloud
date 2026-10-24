@@ -29,7 +29,6 @@ import io.trino.spi.connector.ConnectorOutputMetadata;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.ConnectorTableHandle;
 import io.trino.spi.connector.ConnectorTableMetadata;
-import io.trino.spi.connector.ConnectorTableProperties;
 import io.trino.spi.connector.ConnectorTableVersion;
 import io.trino.spi.connector.Constraint;
 import io.trino.spi.connector.ConstraintApplicationResult;
@@ -123,7 +122,6 @@ public class AwsMetadata
             .build();
 
     public static final String ROW_ID = "row_id";
-    private static final String LEGACY_UPDATE_DELETE_IMPLEMENTATION = "legacy_update_delete_implementation";
 
     public final Map<SchemaTableName, List<ColumnMetadata>> columns;
     public final Map<String, Map<String, ColumnHandle>> columnHandles;
@@ -303,12 +301,6 @@ public class AwsMetadata
     {
         AwsColumnHandle restColumnHandle = (AwsColumnHandle) columnHandle;
         return new ColumnMetadata(restColumnHandle.getName(), restColumnHandle.getType());
-    }
-
-    @Override
-    public ConnectorTableProperties getTableProperties(ConnectorSession session, ConnectorTableHandle table)
-    {
-        return new ConnectorTableProperties();
     }
 
     @Override

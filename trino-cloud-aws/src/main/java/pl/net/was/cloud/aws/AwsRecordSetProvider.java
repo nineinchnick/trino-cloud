@@ -69,7 +69,6 @@ public class AwsRecordSetProvider
 {
     private final AwsMetadata metadata;
     private final Ec2Client ec2;
-    private final S3Client s3;
 
     private static final MapType mapType = new MapType(VARCHAR, VARCHAR, new TypeOperators());
 
@@ -80,7 +79,7 @@ public class AwsRecordSetProvider
     {
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.ec2 = requireNonNull(ec2, "ec2 is null");
-        this.s3 = requireNonNull(s3, "s3 is null");
+        requireNonNull(s3, "s3 is null");
         // must match AwsMetadata.columns
         this.rowGetters = new ImmutableMap.Builder<String, Function<AwsTableHandle, Iterable<List<?>>>>()
                 .put("ec2.availability_zones", _ -> encodeRows(ec2.describeAvailabilityZones().availabilityZones()))
@@ -248,14 +247,6 @@ public class AwsRecordSetProvider
         return objects
                 .stream()
                 .map(r -> encodeRow(r, prependValues))
-                .collect(toList());
-    }
-
-    private static List<?> encodeRow(SdkPojo o)
-    {
-        return o.sdkFields()
-                .stream()
-                .map(f -> encodeField(f, f.getValueOrDefault(o)))
                 .collect(toList());
     }
 

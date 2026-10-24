@@ -22,7 +22,6 @@ import io.trino.spi.TrinoException;
 import io.trino.spi.block.Block;
 import io.trino.spi.block.SqlMap;
 import io.trino.spi.connector.ConnectorPageSink;
-import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.type.MapType;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeOperators;
@@ -72,7 +71,7 @@ public class AwsPageSink
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
-    public AwsPageSink(ConnectorSession session, AwsOutputTableHandle table, Ec2Client ec2, S3Client s3)
+    public AwsPageSink(AwsOutputTableHandle table, Ec2Client ec2, S3Client s3)
     {
         requireNonNull(ec2, "ec2 is null");
         requireNonNull(s3, "s3 is null");
@@ -103,7 +102,6 @@ public class AwsPageSink
         return completedFuture(ImmutableList.of());
     }
 
-    @SuppressWarnings("unused")
     @Override
     public void abort() {}
 
