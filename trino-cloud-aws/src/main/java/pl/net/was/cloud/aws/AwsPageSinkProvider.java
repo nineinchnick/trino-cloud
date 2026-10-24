@@ -55,7 +55,7 @@ public class AwsPageSinkProvider
     @Override
     public ConnectorPageSink createPageSink(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorInsertTableHandle tableHandle, Optional<ConnectorTableCredentials> tableCredentials, ConnectorPageSinkId pageSinkId)
     {
-        return createPageSink((AwsInsertTableHandle) tableHandle);
+        return createPageSink(session, pageSinkId, (AwsInsertTableHandle) tableHandle);
     }
 
     @Override
@@ -63,19 +63,20 @@ public class AwsPageSinkProvider
     {
         AwsMergeTableHandle handle = (AwsMergeTableHandle) tableHandle;
         AwsTable table = tables.require(handle.tableHandle().schemaTableName());
-        return new AwsMergeSink(handle, table, createInsertSink(handle.insertHandle(), table));
+        return new AwsMergeSink(handle, table, createInsertSink(session, pageSinkId, handle.insertHandle(), table));
     }
 
-    private Optional<AwsPageSink> createInsertSink(AwsInsertTableHandle handle, AwsTable table)
+    private Optional<AwsPageSink> createInsertSink(ConnectorSession session, ConnectorPageSinkId pageSinkId, AwsInsertTableHandle handle, AwsTable table)
     {
         if (table.inserter().isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(createPageSink(handle));
+        return Optional.of(createPageSink(session, pageSinkId, handle));
     }
 
-    private AwsPageSink createPageSink(AwsInsertTableHandle handle)
+    private AwsPageSink createPageSink(ConnectorSession session, ConnectorPageSinkId pageSinkId, AwsInsertTableHandle handle)
     {
-        return new AwsPageSink(handle, tables.require(handle.tableHandle().schemaTableName()), maxInsertedRows);
+        AwsPageSink.Settings settings = new AwsPageSink.Settings(session.getQueryId() + "/" + pageSinkId.getId(), maxInsertedRows);
+        return new AwsPageSink(handle, tables.require(handle.tableHandle().schemaTableName()), settings);
     }
 }

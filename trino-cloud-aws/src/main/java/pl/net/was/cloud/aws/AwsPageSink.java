@@ -13,8 +13,10 @@
  */
 package pl.net.was.cloud.aws;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.CaseFormat;
 import com.google.common.collect.ImmutableList;
+import com.google.common.hash.Hashing;
 import io.airlift.log.Logger;
 import io.airlift.slice.Slice;
 import io.airlift.slice.Slices;
@@ -43,6 +45,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.type.VarcharType.VARCHAR;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.CompletableFuture.completedFuture;
 import static pl.net.was.cloud.aws.AwsErrorCode.AWS_TOO_MANY_INSERTED_ROWS;
@@ -52,20 +55,22 @@ public class AwsPageSink
         implements ConnectorPageSink
 {
     private static final Logger log = Logger.get(AwsPageSink.class);
+    private static final String CLIENT_TOKEN = "client_token";
 
     private final AwsInsertTableHandle handle;
     private final String tableName;
     private final Inserter inserter;
     private final Map<String, SdkField<?>> fields;
+    private final String clientTokenPrefix;
     private final int maxInsertedRows;
     private int insertedRows;
     private final ImmutableList.Builder<String> createdResourceIds = ImmutableList.builder();
 
-    public AwsPageSink(AwsInsertTableHandle handle, AwsTable table, int maxInsertedRows)
+    public AwsPageSink(AwsInsertTableHandle handle, AwsTable table, Settings settings)
     {
-        checkArgument(maxInsertedRows > 0, "maxInsertedRows must be positive");
         this.handle = requireNonNull(handle, "handle is null");
-        this.maxInsertedRows = maxInsertedRows;
+        this.clientTokenPrefix = settings.clientTokenPrefix();
+        this.maxInsertedRows = settings.maxInsertedRows();
         this.tableName = table.name().toString();
         this.inserter = table.inserter()
                 .orElseThrow(() -> new TrinoException(NOT_SUPPORTED, "Inserts are not supported for " + tableName));
@@ -122,14 +127,33 @@ public class AwsPageSink
 
     private void insertRow(Page page, int position)
     {
+        AwsRequest.Builder request = setFields(page, position, setClientToken(inserter.requestBuilder().get(), insertedRows));
         insertedRows++;
-        AwsRequest.Builder request = setFields(page, position, inserter.requestBuilder().get());
         try {
             createdResourceIds.addAll(inserter.executor().apply(request.build()));
         }
         catch (SdkException e) {
             throw AwsErrors.translate(e);
         }
+    }
+
+    // a token derived from the row's position in the query makes retried requests for the same row idempotent,
+    // so they don't create duplicate resources; it's set before the fields, so an inserted client_token takes precedence
+    private AwsRequest.Builder setClientToken(AwsRequest.Builder request, long row)
+    {
+        SdkField<?> field = fields.get(CLIENT_TOKEN);
+        if (field == null) {
+            return request;
+        }
+        field.set(request, clientToken(clientTokenPrefix, row));
+        return request;
+    }
+
+    @VisibleForTesting
+    static String clientToken(String clientTokenPrefix, long row)
+    {
+        // EC2 accepts client tokens of up to 64 ASCII characters, which is the length of a hex-encoded SHA-256 hash
+        return Hashing.sha256().hashString(clientTokenPrefix + "/" + row, UTF_8).toString();
     }
 
     private AwsRequest.Builder setFields(Page page, int position, AwsRequest.Builder request)
@@ -168,5 +192,14 @@ public class AwsPageSink
             field.set(request, value);
         }
         return request;
+    }
+
+    public record Settings(String clientTokenPrefix, int maxInsertedRows)
+    {
+        public Settings
+        {
+            requireNonNull(clientTokenPrefix, "clientTokenPrefix is null");
+            checkArgument(maxInsertedRows > 0, "maxInsertedRows must be positive");
+        }
     }
 }
