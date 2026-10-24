@@ -180,28 +180,18 @@ public interface FilterApplier
         if (constraint.getDomains().isPresent()) {
             domain = constraint.getDomains().get().get(column);
         }
-        switch (column.getType().getBaseName()) {
-            case StandardTypes.TIMESTAMP, StandardTypes.TIMESTAMP_WITH_TIME_ZONE -> {
-                if (domain == null) {
-                    return defaultValue;
-                }
-                long since = (long) domain.getValues().getRanges().getSpan().getLowBoundedValue();
-                return ISO_LOCAL_DATE_TIME.format(fromTrinoTimestamp(since)) + "Z";
-            }
-            case StandardTypes.VARCHAR -> {
-                if (domain == null) {
-                    return defaultValue;
-                }
-                return ((Slice) domain.getSingleValue()).toStringUtf8();
-            }
-            case StandardTypes.BIGINT, StandardTypes.INTEGER -> {
-                if (domain == null) {
-                    return defaultValue;
-                }
-                return domain.getSingleValue();
-            }
-            default -> throw new TrinoException(INVALID_ROW_FILTER, "Unexpected constraint for " + column.getName() + "(" + column.getType().getBaseName() + ")");
+        if (domain == null) {
+            return defaultValue;
         }
+        return switch (column.getType().getBaseName()) {
+            case StandardTypes.TIMESTAMP, StandardTypes.TIMESTAMP_WITH_TIME_ZONE -> {
+                long since = (long) domain.getValues().getRanges().getSpan().getLowBoundedValue();
+                yield ISO_LOCAL_DATE_TIME.format(fromTrinoTimestamp(since)) + "Z";
+            }
+            case StandardTypes.VARCHAR -> ((Slice) domain.getSingleValue()).toStringUtf8();
+            case StandardTypes.BIGINT, StandardTypes.INTEGER -> domain.getSingleValue();
+            default -> throw new TrinoException(INVALID_ROW_FILTER, "Unexpected constraint for " + column.getName() + "(" + column.getType().getBaseName() + ")");
+        };
     }
 
     default ZonedDateTime fromTrinoTimestamp(long timestampWithTimeZone)
