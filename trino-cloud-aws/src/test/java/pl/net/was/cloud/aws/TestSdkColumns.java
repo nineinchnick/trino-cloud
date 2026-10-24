@@ -22,6 +22,7 @@ import io.trino.spi.type.TypeOperators;
 import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.services.ec2.model.Instance;
 import software.amazon.awssdk.services.ec2.model.InstanceTypeInfo;
+import software.amazon.awssdk.services.ec2.model.VpnConnection;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
 
@@ -76,6 +77,27 @@ final class TestSdkColumns
     {
         assertThat(columnType(SdkColumns.columns(GetObjectResponse.builder()), "metadata"))
                 .isEqualTo(new MapType(VARCHAR, VARCHAR, TYPE_OPERATORS));
+    }
+
+    @Test
+    void testSensitiveFieldsAreNotMapped()
+    {
+        List<ColumnMetadata> columns = SdkColumns.columns(VpnConnection.builder());
+        assertThat(columns)
+                .extracting(ColumnMetadata::getName)
+                .contains("vpn_connection_id", "customer_gateway_id", "options")
+                .doesNotContain("customer_gateway_configuration");
+        assertThat(rowFieldNames(columns, "options")).contains("tunnel_options");
+        RowType tunnelOption = (RowType) ((ArrayType) ((RowType) columnType(columns, "options")).getFields().stream()
+                .filter(field -> field.getName().orElseThrow().equals("tunnel_options"))
+                .findFirst()
+                .orElseThrow()
+                .getType())
+                .getElementType();
+        assertThat(tunnelOption.getFields())
+                .extracting(field -> field.getName().orElseThrow())
+                .contains("outside_ip_address", "tunnel_inside_cidr")
+                .doesNotContain("pre_shared_key");
     }
 
     @Test

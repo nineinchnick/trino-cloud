@@ -286,6 +286,10 @@ Column and nested field names are the SDK member names in `snake_case`, like
 `etag` for `ETag`, `size_in_mib` for `SizeInMiB` and `baseline_throughput_in_mbps`
 for `BaselineThroughputInMBps`.
 
+Fields that the AWS SDK marks as sensitive, like the pre-shared keys of VPN
+tunnels, are not mapped to columns, so users of a catalog can't read them using
+the catalog's credentials.
+
 Nested objects are rows, so their fields can be accessed using the dereference
 operator, and tags are maps, indexed by the tag key:
 
