@@ -37,11 +37,13 @@ public class AwsPageSinkProvider
         implements ConnectorPageSinkProvider
 {
     private final AwsTables tables;
+    private final int maxInsertedRows;
 
     @Inject
-    public AwsPageSinkProvider(AwsTables tables)
+    public AwsPageSinkProvider(AwsTables tables, AwsConfig config)
     {
         this.tables = requireNonNull(tables, "tables is null");
+        this.maxInsertedRows = config.getMaxInsertedRows();
     }
 
     @Override
@@ -60,11 +62,20 @@ public class AwsPageSinkProvider
     public ConnectorMergeSink createMergeSink(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorMergeTableHandle tableHandle, Optional<ConnectorTableCredentials> tableCredentials, ConnectorPageSinkId pageSinkId, MemoryContext memoryContext)
     {
         AwsMergeTableHandle handle = (AwsMergeTableHandle) tableHandle;
-        return new AwsMergeSink(handle, tables.require(handle.tableHandle().schemaTableName()));
+        AwsTable table = tables.require(handle.tableHandle().schemaTableName());
+        return new AwsMergeSink(handle, table, createInsertSink(handle.insertHandle(), table));
+    }
+
+    private Optional<AwsPageSink> createInsertSink(AwsInsertTableHandle handle, AwsTable table)
+    {
+        if (table.inserter().isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(createPageSink(handle));
     }
 
     private AwsPageSink createPageSink(AwsInsertTableHandle handle)
     {
-        return new AwsPageSink(handle, tables.require(handle.tableHandle().schemaTableName()));
+        return new AwsPageSink(handle, tables.require(handle.tableHandle().schemaTableName()), maxInsertedRows);
     }
 }

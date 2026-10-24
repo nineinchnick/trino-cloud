@@ -40,11 +40,11 @@ public class AwsMergeSink
     private final AwsTable table;
     private final Optional<AwsPageSink> insertSink;
 
-    public AwsMergeSink(AwsMergeTableHandle handle, AwsTable table)
+    public AwsMergeSink(AwsMergeTableHandle handle, AwsTable table, Optional<AwsPageSink> insertSink)
     {
         this.handle = requireNonNull(handle, "handle is null").insertHandle();
         this.table = requireNonNull(table, "table is null");
-        this.insertSink = table.inserter().map(_ -> new AwsPageSink(this.handle, table));
+        this.insertSink = requireNonNull(insertSink, "insertSink is null");
     }
 
     @Override

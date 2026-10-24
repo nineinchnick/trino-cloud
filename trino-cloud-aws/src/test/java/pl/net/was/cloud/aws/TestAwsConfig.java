@@ -44,7 +44,8 @@ final class TestAwsConfig
                 .setMaxConnections(50)
                 .setRetryMode(RetryMode.ADAPTIVE)
                 .setMaxErrorRetries(10)
-                .setReadOnly(true));
+                .setReadOnly(true)
+                .setMaxInsertedRows(10));
     }
 
     @Test
@@ -62,6 +63,7 @@ final class TestAwsConfig
                 .put("aws.retry-mode", "STANDARD")
                 .put("aws.max-error-retries", "3")
                 .put("aws.read-only", "false")
+                .put("aws.max-inserted-rows", "100")
                 .buildOrThrow();
 
         AwsConfig expected = new AwsConfig()
@@ -75,7 +77,8 @@ final class TestAwsConfig
                 .setMaxConnections(10)
                 .setRetryMode(RetryMode.STANDARD)
                 .setMaxErrorRetries(3)
-                .setReadOnly(false);
+                .setReadOnly(false)
+                .setMaxInsertedRows(100);
 
         // aws.profile is mutually exclusive with static credentials, so it's mapped in a separate test
         assertFullMapping(properties, expected, ImmutableSet.of("aws.profile"));
@@ -95,6 +98,7 @@ final class TestAwsConfig
                 .put("aws.retry-mode", "STANDARD")
                 .put("aws.max-error-retries", "3")
                 .put("aws.read-only", "false")
+                .put("aws.max-inserted-rows", "100")
                 .buildOrThrow();
 
         AwsConfig expected = new AwsConfig()
@@ -107,7 +111,8 @@ final class TestAwsConfig
                 .setMaxConnections(10)
                 .setRetryMode(RetryMode.STANDARD)
                 .setMaxErrorRetries(3)
-                .setReadOnly(false);
+                .setReadOnly(false)
+                .setMaxInsertedRows(100);
 
         assertFullMapping(properties, expected, ImmutableSet.of("aws.access-key", "aws.secret-key"));
     }

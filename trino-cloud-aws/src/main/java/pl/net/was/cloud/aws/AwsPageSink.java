@@ -35,11 +35,13 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.CompletableFuture.completedFuture;
+import static pl.net.was.cloud.aws.AwsErrorCode.AWS_TOO_MANY_INSERTED_ROWS;
 import static pl.net.was.cloud.aws.PageValues.getValue;
 
 public class AwsPageSink
@@ -49,10 +51,14 @@ public class AwsPageSink
     private final String tableName;
     private final Inserter inserter;
     private final Map<String, SdkField<?>> fields;
+    private final int maxInsertedRows;
+    private int insertedRows;
 
-    public AwsPageSink(AwsInsertTableHandle handle, AwsTable table)
+    public AwsPageSink(AwsInsertTableHandle handle, AwsTable table, int maxInsertedRows)
     {
+        checkArgument(maxInsertedRows > 0, "maxInsertedRows must be positive");
         this.handle = requireNonNull(handle, "handle is null");
+        this.maxInsertedRows = maxInsertedRows;
         this.tableName = table.name().toString();
         this.inserter = table.inserter()
                 .orElseThrow(() -> new TrinoException(NOT_SUPPORTED, "Inserts are not supported for " + tableName));
@@ -67,8 +73,9 @@ public class AwsPageSink
     @Override
     public CompletableFuture<?> appendPage(Page page)
     {
+        checkInsertedRowsLimit(page.getPositionCount());
         for (int position = 0; position < page.getPositionCount(); position++) {
-            insert(page, position);
+            insertRow(page, position);
         }
         return NOT_BLOCKED;
     }
@@ -84,6 +91,21 @@ public class AwsPageSink
 
     void insert(Page page, int position)
     {
+        checkInsertedRowsLimit(1);
+        insertRow(page, position);
+    }
+
+    // checked before making any requests for the rows, so none of them create resources when the limit is exceeded
+    private void checkInsertedRowsLimit(int rows)
+    {
+        if (insertedRows + rows > maxInsertedRows) {
+            throw new TrinoException(AWS_TOO_MANY_INSERTED_ROWS, "Inserting more than %s rows into %s is not allowed, increase aws.max-inserted-rows to insert more".formatted(maxInsertedRows, tableName));
+        }
+    }
+
+    private void insertRow(Page page, int position)
+    {
+        insertedRows++;
         AwsRequest.Builder request = setFields(page, position, inserter.requestBuilder().get());
         try {
             inserter.executor().accept(request.build());
