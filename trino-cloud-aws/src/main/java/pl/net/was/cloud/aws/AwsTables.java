@@ -91,6 +91,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.trino.spi.StandardErrorCode.INVALID_ARGUMENTS;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
@@ -102,12 +103,12 @@ import static pl.net.was.cloud.aws.AwsErrorCode.AWS_MISSING_PREDICATE;
 import static pl.net.was.cloud.aws.AwsTable.ROW_ID;
 import static pl.net.was.cloud.aws.SdkColumns.columns;
 import static pl.net.was.cloud.aws.SdkIterables.emptyOnErrorCodes;
+import static pl.net.was.cloud.aws.SdkIterables.fallbackOnErrorCodes;
 import static pl.net.was.cloud.aws.SdkRowEncoder.encodeRow;
 
 public class AwsTables
 {
     private static final Set<String> MISSING_IMAGE_CODES = ImmutableSet.of("InvalidAMIID.NotFound", "InvalidAMIID.Malformed");
-    private static final Set<String> MISSING_INSTANCE_CODES = ImmutableSet.of("InvalidInstanceID.NotFound", "InvalidInstanceID.Malformed");
     private static final Set<String> MISSING_SNAPSHOT_CODES = ImmutableSet.of("InvalidSnapshot.NotFound", "InvalidSnapshotID.Malformed");
     private static final String SELF_OWNER = "self";
 
@@ -206,9 +207,11 @@ public class AwsTables
                         new SchemaTableName("s3", table),
                         columns(List.of(new ColumnMetadata("bucket_name", VARCHAR)), sdkFields))
                 .rowSource((awsTable, handle) -> {
-                    String bucketName = (String) awsTable.requireFilterApplier().getFilter(awsTable.columnHandle("bucket_name"), handle.constraint());
-                    requirePredicate(bucketName, awsTable.name() + ".bucket_name");
-                    return encodeRows(rows.apply(bucketName), List.of(_ -> bucketName));
+                    List<String> bucketNames = awsTable.requireFilterApplier().getFilterValues(awsTable.columnHandle("bucket_name"), handle.constraint());
+                    requirePredicate(bucketNames, awsTable.name() + ".bucket_name");
+                    return Iterables.concat(Lists.transform(
+                            bucketNames,
+                            bucketName -> encodeRows(rows.apply(bucketName), List.of(_ -> bucketName))));
                 })
                 .filterApplier(new BucketFilter())
                 .build();
@@ -222,22 +225,23 @@ public class AwsTables
     private static Iterable<List<?>> images(Ec2Client ec2, AwsTable table, AwsTableHandle handle)
     {
         FilterApplier filter = table.requireFilterApplier();
-        String imageId = (String) filter.getFilter(table.columnHandle("image_id"), handle.constraint());
-        String name = (String) filter.getFilter(table.columnHandle("name"), handle.constraint());
+        List<String> imageIds = filter.getFilterValues(table.columnHandle("image_id"), handle.constraint());
+        List<String> names = filter.getFilterValues(table.columnHandle("name"), handle.constraint());
         List<String> owners = filter.getFilterValues(table.columnHandle("owner_id"), handle.constraint());
         DescribeImagesRequest.Builder request = DescribeImagesRequest.builder();
-        if (imageId != null) {
-            request.imageIds(imageId);
-        }
-        if (name != null) {
-            request.filters(Filter.builder().name("name").values(name).build());
+        if (!names.isEmpty()) {
+            request.filters(Filter.builder().name("name").values(names).build());
         }
         // image IDs alone limit the results, and can refer to public or shared images
-        if (imageId == null || !owners.isEmpty()) {
+        if (imageIds.isEmpty() || !owners.isEmpty()) {
             request.owners(ownersOrSelf(owners));
         }
+        DescribeImagesRequest baseRequest = request.build();
+        Iterable<Image> images = imageIds.isEmpty()
+                ? ec2.describeImagesPaginator(baseRequest).images()
+                : describeByIds(imageIds, MISSING_IMAGE_CODES, ids -> ec2.describeImagesPaginator(baseRequest.toBuilder().imageIds(ids).build()).images());
         return encodeRows(
-                emptyOnErrorCodes(ec2.describeImagesPaginator(request.build()).images(), MISSING_IMAGE_CODES),
+                images,
                 List.of(
                         // populate row_id - to support DELETE
                         o -> Slices.utf8Slice(((Image) o).imageId()),
@@ -273,6 +277,20 @@ public class AwsTables
         return encodeRows(emptyOnErrorCodes(ec2.describeSnapshotsPaginator(request).snapshots(), MISSING_SNAPSHOT_CODES), List.of());
     }
 
+    // the ID request parameters are much faster than the ID filters, which make AWS check all public images or snapshots without an owner,
+    // but AWS fails the whole request when any of the IDs doesn't exist, so then describe each ID separately, and skip the missing ones
+    private static <T> Iterable<T> describeByIds(List<String> ids, Set<String> missingIdCodes, Function<List<String>, Iterable<T>> describe)
+    {
+        checkArgument(!ids.isEmpty(), "ids is empty");
+        if (ids.size() == 1) {
+            return emptyOnErrorCodes(describe.apply(ids), missingIdCodes);
+        }
+        return fallbackOnErrorCodes(
+                describe.apply(ids),
+                missingIdCodes,
+                () -> Iterables.concat(Lists.transform(ids, id -> emptyOnErrorCodes(describe.apply(List.of(id)), missingIdCodes))));
+    }
+
     // without an owner, AWS lists all public images or snapshots, which is slow and rarely useful
     private static List<String> ownersOrSelf(List<String> owners)
     {
@@ -284,12 +302,13 @@ public class AwsTables
 
     private static Iterable<List<?>> instances(Ec2Client ec2, AwsTable table, AwsTableHandle handle)
     {
-        String instanceId = (String) table.requireFilterApplier().getFilter(table.columnHandle("instance_id"), handle.constraint());
+        List<String> instanceIds = table.requireFilterApplier().getFilterValues(table.columnHandle("instance_id"), handle.constraint());
         DescribeInstancesRequest.Builder request = DescribeInstancesRequest.builder();
-        if (instanceId != null) {
-            request.instanceIds(instanceId);
+        // unlike the InstanceIds parameter, the filter returns no rows for missing IDs, instead of failing the whole request
+        if (!instanceIds.isEmpty()) {
+            request.filters(Filter.builder().name("instance-id").values(instanceIds).build());
         }
-        Iterable<Reservation> reservations = emptyOnErrorCodes(ec2.describeInstancesPaginator(request.build()).reservations(), MISSING_INSTANCE_CODES);
+        Iterable<Reservation> reservations = ec2.describeInstancesPaginator(request.build()).reservations();
         return encodeRows(
                 Iterables.concat(Iterables.transform(reservations, Reservation::instances)),
                 List.of(o -> Slices.utf8Slice(((Instance) o).instanceId())));
@@ -347,9 +366,9 @@ public class AwsTables
         throw new TrinoException(INVALID_ARGUMENTS, "Updates of ec2.instances.state column require a map with a Name key, like MAP(ARRAY['Name'], ARRAY['stopped'])");
     }
 
-    private static void requirePredicate(Object value, String name)
+    private static void requirePredicate(List<String> values, String name)
     {
-        if (value == null) {
+        if (values.isEmpty()) {
             throw new TrinoException(AWS_MISSING_PREDICATE, "Missing required constraint for " + name);
         }
     }

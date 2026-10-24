@@ -17,6 +17,7 @@ package pl.net.was.cloud.aws.filters;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.Map;
+import java.util.Set;
 
 public class InstanceFilter
         implements FilterApplier
@@ -26,5 +27,12 @@ public class InstanceFilter
     {
         return ImmutableMap.of(
                 "instance_id", FilterType.EQUAL);
+    }
+
+    // EC2 filter values treat * and ? as wildcards, so the filter can match more instances than requested
+    @Override
+    public Set<String> getUnenforcedFilters()
+    {
+        return Set.of("instance_id");
     }
 }

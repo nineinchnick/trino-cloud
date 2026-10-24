@@ -14,6 +14,7 @@
 
 package pl.net.was.cloud.aws;
 
+import io.trino.sql.planner.plan.FilterNode;
 import io.trino.testing.AbstractTestQueryFramework;
 import io.trino.testing.QueryRunner;
 import io.trino.testing.containers.Floci;
@@ -23,7 +24,6 @@ import java.util.List;
 
 import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static pl.net.was.cloud.aws.EmulatorTestData.IMAGE_ID;
 import static pl.net.was.cloud.aws.EmulatorTestData.IMAGE_OWNER_ID;
 import static pl.net.was.cloud.aws.EmulatorTestData.INSTANCE_TYPE;
@@ -37,6 +37,7 @@ import static pl.net.was.cloud.aws.EmulatorTestData.VERSIONED_BUCKET;
 final class TestAwsConnectorEmulator
         extends AbstractTestQueryFramework
 {
+    private static final String MISSING_INSTANCE_ID = "i-0123456789abcdef0";
     // Floci doesn't support DescribePlacementGroups, DescribePublicIpv4Pools and DescribeVpnConnections,
     // so placement_groups, public_ipv4_pools and vpn_connections are only covered by TestAwsQueriesRealAccount
     private static final List<String> EC2_TABLES_WITHOUT_REQUIRED_FILTERS = List.of(
@@ -143,7 +144,7 @@ final class TestAwsConnectorEmulator
     {
         String instanceId = testData.instanceIds().getFirst();
         assertThat(query("SELECT instance_id, subnet_id FROM aws.ec2.instances WHERE instance_id = '%s'".formatted(instanceId)))
-                .isFullyPushedDown()
+                .isNotFullyPushedDown(FilterNode.class)
                 .matches("VALUES (VARCHAR '%s', VARCHAR '%s')".formatted(instanceId, testData.subnetId()));
     }
 
@@ -157,9 +158,35 @@ final class TestAwsConnectorEmulator
     @Test
     void testInstanceIdInList()
     {
-        // TODO #288 IN lists should be pushed down and return both instances
-        assertThatThrownBy(() -> computeActual("SELECT instance_id FROM aws.ec2.instances WHERE instance_id IN ('%s', '%s')".formatted(testData.instanceIds().get(0), testData.instanceIds().get(1))))
-                .hasMessage("Domain is not a single value");
+        String firstId = testData.instanceIds().get(0);
+        String secondId = testData.instanceIds().get(1);
+        assertThat(query("SELECT instance_id FROM aws.ec2.instances WHERE instance_id IN ('%s', '%s')".formatted(firstId, secondId)))
+                .isNotFullyPushedDown(FilterNode.class)
+                .matches("VALUES VARCHAR '%s', VARCHAR '%s'".formatted(firstId, secondId));
+        // missing IDs must not hide the existing ones
+        assertThat(query("SELECT instance_id FROM aws.ec2.instances WHERE instance_id IN ('%s', '%s', 'not-an-instance-id')".formatted(firstId, MISSING_INSTANCE_ID)))
+                .isNotFullyPushedDown(FilterNode.class)
+                .matches("VALUES VARCHAR '%s'".formatted(firstId));
+    }
+
+    @Test
+    void testInstanceIdWildcards()
+    {
+        // EC2 treats * and ? in filter values as wildcards, but SQL equality must not
+        assertQueryReturnsEmptyResult("SELECT instance_id FROM aws.ec2.instances WHERE instance_id = 'i-*'");
+        assertQueryReturnsEmptyResult("SELECT instance_id FROM aws.ec2.instances WHERE instance_id IN ('i-0123456789abcdef?', 'i-*')");
+    }
+
+    @Test
+    void testInstanceIdIsNull()
+    {
+        String instanceId = testData.instanceIds().getFirst();
+        assertThat(query("SELECT instance_id FROM aws.ec2.instances WHERE instance_id IS NULL"))
+                .isNotFullyPushedDown(FilterNode.class)
+                .returnsEmptyResult();
+        assertThat(query("SELECT instance_id FROM aws.ec2.instances WHERE instance_id IS NULL OR instance_id = '%s'".formatted(instanceId)))
+                .isNotFullyPushedDown(FilterNode.class)
+                .matches("VALUES VARCHAR '%s'".formatted(instanceId));
     }
 
     @Test
@@ -236,6 +263,22 @@ final class TestAwsConnectorEmulator
     {
         assertThat(query("SELECT name, owner_id FROM aws.ec2.images WHERE image_id = '%s'".formatted(IMAGE_ID)))
                 .matches("VALUES (VARCHAR 'amzn2-ami-hvm-2.0.20230404.0-x86_64-gp2', VARCHAR '%s')".formatted(IMAGE_OWNER_ID));
+    }
+
+    @Test
+    void testImageIdInList()
+    {
+        // Floci returns a made-up image for any well-formed image ID, so only a malformed ID can be missing
+        assertThat(query("SELECT image_id FROM aws.ec2.images WHERE image_id IN ('%s', '%s', 'not-an-image-id')".formatted(IMAGE_ID, testData.ownImageId())))
+                .matches("VALUES VARCHAR '%s', VARCHAR '%s'".formatted(IMAGE_ID, testData.ownImageId()));
+    }
+
+    @Test
+    void testImageIdIsNull()
+    {
+        assertQueryReturnsEmptyResult("SELECT image_id FROM aws.ec2.images WHERE image_id IS NULL");
+        assertThat(query("SELECT image_id FROM aws.ec2.images WHERE image_id IS NULL OR image_id = '%s'".formatted(testData.ownImageId())))
+                .matches("VALUES VARCHAR '%s'".formatted(testData.ownImageId()));
     }
 
     // Floci doesn't support CreateSnapshot, so these only check that the pushed down filters are accepted
@@ -373,10 +416,19 @@ final class TestAwsConnectorEmulator
     }
 
     @Test
+    void testObjectsInManyBuckets()
+    {
+        assertThat(query("SELECT bucket_name, key FROM aws.s3.objects WHERE bucket_name IN ('%s', '%s')".formatted(OBJECTS_BUCKET, VERSIONED_BUCKET)))
+                .matches("VALUES (VARCHAR '%1$s', VARCHAR 'a.txt'), (VARCHAR '%1$s', VARCHAR 'dir/b.txt'), (VARCHAR '%2$s', VARCHAR 'changed.txt')".formatted(OBJECTS_BUCKET, VERSIONED_BUCKET));
+    }
+
+    @Test
     void testObjectsRequireBucketName()
     {
         assertQueryFails("SELECT * FROM aws.s3.objects", "Missing required constraint for s3.objects.bucket_name");
         assertQueryFails("SELECT * FROM aws.s3.object_versions", "Missing required constraint for s3.object_versions.bucket_name");
         assertQueryFails("SELECT * FROM aws.s3.deleted_objects", "Missing required constraint for s3.deleted_objects.bucket_name");
+        assertQueryFails("SELECT * FROM aws.s3.objects WHERE bucket_name IS NULL", "Missing required constraint for s3.objects.bucket_name");
+        assertQueryFails("SELECT * FROM aws.s3.objects WHERE bucket_name = '%s' OR bucket_name IS NULL".formatted(OBJECTS_BUCKET), "Missing required constraint for s3.objects.bucket_name");
     }
 }

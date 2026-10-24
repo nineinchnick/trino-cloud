@@ -29,6 +29,7 @@ import static io.trino.spi.StandardErrorCode.INVALID_ARGUMENTS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static pl.net.was.cloud.aws.SdkIterables.emptyOnErrorCodes;
+import static pl.net.was.cloud.aws.SdkIterables.fallbackOnErrorCodes;
 import static pl.net.was.cloud.aws.SdkIterables.translateErrors;
 
 final class TestSdkIterables
@@ -49,6 +50,23 @@ final class TestSdkIterables
         assertThat(emptyOnErrorCodes(failingAfter(List.of(), "InvalidInstanceID.NotFound"), Set.of("InvalidInstanceID.NotFound")))
                 .isEmpty();
         assertThatThrownBy(() -> ImmutableList.copyOf(emptyOnErrorCodes(failingAfter(List.of(), "InternalError"), Set.of("InvalidInstanceID.NotFound"))))
+                .isInstanceOf(Ec2Exception.class);
+    }
+
+    @Test
+    void testFallbackOnErrorCodes()
+    {
+        Set<String> errorCodes = Set.of("InvalidAMIID.NotFound");
+        assertThat(fallbackOnErrorCodes(List.of("a", "b"), errorCodes, () -> List.of("c")))
+                .containsExactly("a", "b");
+        assertThat(fallbackOnErrorCodes(failingAfter(List.of(), "InvalidAMIID.NotFound"), errorCodes, () -> List.of("c")))
+                .containsExactly("c");
+        assertThatThrownBy(() -> ImmutableList.copyOf(fallbackOnErrorCodes(failingAfter(List.of(), "InternalError"), errorCodes, () -> List.of("c"))))
+                .isInstanceOf(Ec2Exception.class);
+        // falling back after returning some items would return them twice
+        assertThatThrownBy(() -> ImmutableList.copyOf(fallbackOnErrorCodes(failingAfter(List.of("a"), "InvalidAMIID.NotFound"), errorCodes, () -> List.of("c"))))
+                .isInstanceOf(Ec2Exception.class);
+        assertThatThrownBy(() -> ImmutableList.copyOf(fallbackOnErrorCodes(failingAfter(List.of(), "InvalidAMIID.NotFound"), errorCodes, () -> failingAfter(List.of(), "InvalidAMIID.NotFound"))))
                 .isInstanceOf(Ec2Exception.class);
     }
 

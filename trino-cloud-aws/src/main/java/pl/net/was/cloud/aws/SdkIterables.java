@@ -19,6 +19,7 @@ import software.amazon.awssdk.core.exception.SdkException;
 import java.util.Iterator;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import static java.util.Objects.requireNonNull;
 
@@ -44,6 +45,46 @@ final class SdkIterables
                 throw e;
             }
         });
+    }
+
+    /**
+     * Iterates the fallback instead when the items fail with one of the error codes before returning any of them.
+     */
+    static <T> Iterable<T> fallbackOnErrorCodes(Iterable<T> items, Set<String> errorCodes, Supplier<Iterable<T>> fallback)
+    {
+        requireNonNull(items, "items is null");
+        requireNonNull(errorCodes, "errorCodes is null");
+        requireNonNull(fallback, "fallback is null");
+        return () -> new AbstractIterator<>()
+        {
+            private Iterator<T> delegate;
+            private boolean canFallBack = true;
+
+            @Override
+            protected T computeNext()
+            {
+                while (true) {
+                    try {
+                        if (delegate == null) {
+                            delegate = items.iterator();
+                        }
+                        if (!delegate.hasNext()) {
+                            return endOfData();
+                        }
+                        T next = delegate.next();
+                        canFallBack = false;
+                        return next;
+                    }
+                    catch (SdkException e) {
+                        if (!canFallBack || !AwsErrors.hasErrorCode(e, errorCodes)) {
+                            throw e;
+                        }
+                        canFallBack = false;
+                        delegate = fallback.get().iterator();
+                    }
+                }
+            }
+        };
     }
 
     private static <T> Iterable<T> handleErrors(Iterable<T> items, Consumer<SdkException> errorHandler)
