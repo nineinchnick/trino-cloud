@@ -159,7 +159,7 @@ public class AwsMetadata
             columnNames.add(column.name());
             columnTypes.add(column.type());
         }
-        return new AwsOutputTableHandle(awsTableHandle, columnNames.build(), columnTypes.build());
+        return new AwsInsertTableHandle(awsTableHandle, columnNames.build(), columnTypes.build());
     }
 
     @Override
@@ -201,7 +201,7 @@ public class AwsMetadata
         if (!tables.require(awsTableHandle.schemaTableName()).supportsMerge()) {
             throw new TrinoException(StandardErrorCode.NOT_SUPPORTED, "Deletes and updates are not supported for %s".formatted(awsTableHandle.schemaTableName()));
         }
-        return new AwsOutputTableHandle(awsTableHandle, List.of(), List.of());
+        return new AwsMergeTableHandle(awsTableHandle, new AwsInsertTableHandle(awsTableHandle, List.of(), List.of()));
     }
 
     @Override
