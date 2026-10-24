@@ -15,6 +15,7 @@
 package pl.net.was.cloud.aws;
 
 import com.google.inject.Inject;
+import io.trino.spi.TrinoException;
 import io.trino.spi.connector.ConnectorInsertTableHandle;
 import io.trino.spi.connector.ConnectorMergeSink;
 import io.trino.spi.connector.ConnectorMergeTableHandle;
@@ -29,6 +30,7 @@ import io.trino.spi.connector.MemoryContext;
 
 import java.util.Optional;
 
+import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static java.util.Objects.requireNonNull;
 
 public class AwsPageSinkProvider
@@ -45,24 +47,24 @@ public class AwsPageSinkProvider
     @Override
     public ConnectorPageSink createPageSink(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorOutputTableHandle tableHandle, Optional<ConnectorTableCredentials> tableCredentials, ConnectorPageSinkId pageSinkId)
     {
-        return createPageSink((AwsOutputTableHandle) tableHandle);
+        throw new TrinoException(NOT_SUPPORTED, "This connector does not support creating tables");
     }
 
     @Override
     public ConnectorPageSink createPageSink(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorInsertTableHandle tableHandle, Optional<ConnectorTableCredentials> tableCredentials, ConnectorPageSinkId pageSinkId)
     {
-        return createPageSink((AwsOutputTableHandle) tableHandle);
+        return createPageSink((AwsInsertTableHandle) tableHandle);
     }
 
     @Override
     public ConnectorMergeSink createMergeSink(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorMergeTableHandle tableHandle, Optional<ConnectorTableCredentials> tableCredentials, ConnectorPageSinkId pageSinkId, MemoryContext memoryContext)
     {
-        AwsOutputTableHandle handle = (AwsOutputTableHandle) tableHandle;
-        return new AwsMergeSink(handle, tables.require(handle.getTableHandle().schemaTableName()));
+        AwsMergeTableHandle handle = (AwsMergeTableHandle) tableHandle;
+        return new AwsMergeSink(handle, tables.require(handle.tableHandle().schemaTableName()));
     }
 
-    private AwsPageSink createPageSink(AwsOutputTableHandle handle)
+    private AwsPageSink createPageSink(AwsInsertTableHandle handle)
     {
-        return new AwsPageSink(handle, tables.require(handle.getTableHandle().schemaTableName()));
+        return new AwsPageSink(handle, tables.require(handle.tableHandle().schemaTableName()));
     }
 }

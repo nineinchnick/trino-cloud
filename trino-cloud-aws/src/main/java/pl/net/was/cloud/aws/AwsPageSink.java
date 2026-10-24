@@ -45,12 +45,12 @@ import static pl.net.was.cloud.aws.PageValues.getValue;
 public class AwsPageSink
         implements ConnectorPageSink
 {
-    private final AwsOutputTableHandle handle;
+    private final AwsInsertTableHandle handle;
     private final String tableName;
     private final Inserter inserter;
     private final Map<String, SdkField<?>> fields;
 
-    public AwsPageSink(AwsOutputTableHandle handle, AwsTable table)
+    public AwsPageSink(AwsInsertTableHandle handle, AwsTable table)
     {
         this.handle = requireNonNull(handle, "handle is null");
         this.tableName = table.name().toString();
@@ -96,7 +96,7 @@ public class AwsPageSink
                 continue;
             }
 
-            String columnName = handle.getColumnNames().get(channel);
+            String columnName = handle.columnNames().get(channel);
             SdkField<?> field = fields.get(columnName);
             if (field == null && columnName.equals("tags")) {
                 field = fields.get("tag_specifications");
@@ -106,7 +106,7 @@ public class AwsPageSink
             }
 
             VARCHAR.getSlice(block, position).toStringUtf8();
-            Object value = getValue(handle.getColumnTypes().get(channel), position, block);
+            Object value = getValue(handle.columnTypes().get(channel), position, block);
             if (columnName.equals("tags")) {
                 ImmutableList.Builder<Tag> tags = ImmutableList.builder();
                 Block array = (Block) value;

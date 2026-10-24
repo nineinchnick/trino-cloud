@@ -35,15 +35,15 @@ import static pl.net.was.cloud.aws.PageValues.getValue;
 public class AwsMergeSink
         implements ConnectorMergeSink
 {
-    private final AwsOutputTableHandle handle;
+    private final AwsInsertTableHandle handle;
     private final AwsTable table;
     private final Optional<AwsPageSink> insertSink;
 
-    public AwsMergeSink(AwsOutputTableHandle handle, AwsTable table)
+    public AwsMergeSink(AwsMergeTableHandle handle, AwsTable table)
     {
-        this.handle = requireNonNull(handle, "handle is null");
+        this.handle = requireNonNull(handle, "handle is null").insertHandle();
         this.table = requireNonNull(table, "table is null");
-        this.insertSink = table.inserter().map(_ -> new AwsPageSink(handle, table));
+        this.insertSink = table.inserter().map(_ -> new AwsPageSink(this.handle, table));
     }
 
     @Override
@@ -84,9 +84,9 @@ public class AwsMergeSink
 
     private Object getColumnValue(Page page, int position, String columnName)
     {
-        int channel = handle.getColumnNames().indexOf(columnName);
+        int channel = handle.columnNames().indexOf(columnName);
         Block block = page.getBlock(channel);
-        return getValue(handle.getColumnTypes().get(channel), position, block);
+        return getValue(handle.columnTypes().get(channel), position, block);
     }
 
     private String getDeletedRowId(Block rowIds, int position)
