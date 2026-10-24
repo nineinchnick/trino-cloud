@@ -27,6 +27,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static pl.net.was.cloud.aws.EmulatorTestData.IMAGE_ID;
 import static pl.net.was.cloud.aws.EmulatorTestData.IMAGE_OWNER_ID;
 import static pl.net.was.cloud.aws.EmulatorTestData.INSTANCE_TYPE;
+import static pl.net.was.cloud.aws.EmulatorTestData.MANY_OBJECTS_BUCKET;
+import static pl.net.was.cloud.aws.EmulatorTestData.MANY_OBJECTS_DELETED_COUNT;
+import static pl.net.was.cloud.aws.EmulatorTestData.MANY_OBJECTS_LIVE_COUNT;
 import static pl.net.was.cloud.aws.EmulatorTestData.NAME;
 import static pl.net.was.cloud.aws.EmulatorTestData.OBJECTS_BUCKET;
 import static pl.net.was.cloud.aws.EmulatorTestData.VERSIONED_BUCKET;
@@ -273,7 +276,25 @@ final class TestAwsConnectorEmulator
     {
         assertQuery(
                 "SELECT name FROM aws.s3.buckets",
-                "VALUES '%s', '%s'".formatted(OBJECTS_BUCKET, VERSIONED_BUCKET));
+                "VALUES '%s', '%s', '%s'".formatted(OBJECTS_BUCKET, VERSIONED_BUCKET, MANY_OBJECTS_BUCKET));
+    }
+
+    // Floci ignores MaxResults and never returns a NextToken for EC2 describe calls, so only S3 can test reading more than one page
+    @Test
+    void testObjectsSpanningManyPages()
+    {
+        assertQuery(
+                "SELECT count(*), count(DISTINCT key) FROM aws.s3.objects WHERE bucket_name = '%s'".formatted(MANY_OBJECTS_BUCKET),
+                "VALUES (%1$s, %1$s)".formatted(MANY_OBJECTS_LIVE_COUNT));
+        assertQuery(
+                "SELECT count(*), count(DISTINCT key) FROM aws.s3.object_versions WHERE bucket_name = '%s'".formatted(MANY_OBJECTS_BUCKET),
+                "VALUES (%s, %s)".formatted(MANY_OBJECTS_LIVE_COUNT + MANY_OBJECTS_DELETED_COUNT, MANY_OBJECTS_LIVE_COUNT + MANY_OBJECTS_DELETED_COUNT));
+        assertQuery(
+                "SELECT count(*), count(DISTINCT key) FROM aws.s3.deleted_objects WHERE bucket_name = '%s'".formatted(MANY_OBJECTS_BUCKET),
+                "VALUES (%1$s, %1$s)".formatted(MANY_OBJECTS_DELETED_COUNT));
+        assertQuery(
+                "SELECT count(*) FROM (SELECT key FROM aws.s3.objects WHERE bucket_name = '%s' LIMIT 10)".formatted(MANY_OBJECTS_BUCKET),
+                "VALUES 10");
     }
 
     @Test
