@@ -11,64 +11,39 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package pl.net.was.cloud.aws;
 
-import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableList;
 import io.airlift.slice.Slice;
 import io.trino.spi.Page;
 import io.trino.spi.TrinoException;
 import io.trino.spi.block.Block;
-import io.trino.spi.block.SqlMap;
 import io.trino.spi.connector.ConnectorMergeSink;
-import io.trino.spi.connector.SchemaTableName;
-import io.trino.spi.type.Type;
-import software.amazon.awssdk.services.ec2.Ec2Client;
-import software.amazon.awssdk.services.ec2.model.AttributeValue;
-import software.amazon.awssdk.services.ec2.model.DeregisterImageRequest;
-import software.amazon.awssdk.services.ec2.model.ModifyInstanceAttributeRequest;
-import software.amazon.awssdk.services.ec2.model.StartInstancesRequest;
-import software.amazon.awssdk.services.ec2.model.StopInstancesRequest;
-import software.amazon.awssdk.services.ec2.model.TerminateInstancesRequest;
-import software.amazon.awssdk.services.s3.S3Client;
 
+import java.util.Collection;
 import java.util.Locale;
-import java.util.Map;
-import java.util.function.BiConsumer;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Supplier;
 
-import static io.trino.spi.StandardErrorCode.INVALID_COLUMN_REFERENCE;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.type.TinyintType.TINYINT;
-import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.util.Objects.requireNonNull;
+import static java.util.concurrent.CompletableFuture.completedFuture;
+import static pl.net.was.cloud.aws.PageValues.getValue;
 
 public class AwsMergeSink
-        extends AwsPageSink
         implements ConnectorMergeSink
 {
-    private final Map<String, BiConsumer<Block, Integer>> deleters;
-    private final Map<String, BiConsumer<Page, Integer>> updaters;
+    private final AwsOutputTableHandle handle;
+    private final AwsTable table;
+    private final Optional<AwsPageSink> insertSink;
 
-    private final Ec2Client ec2;
-
-    public AwsMergeSink(AwsOutputTableHandle table, AwsMetadata metadata, Ec2Client ec2, S3Client s3)
+    public AwsMergeSink(AwsOutputTableHandle handle, AwsTable table)
     {
-        super(table, ec2, s3);
-
-        this.ec2 = requireNonNull(ec2, "ec2 is null");
-        this.deleters = ImmutableMap.<String, BiConsumer<Block, Integer>>builder()
-                .put("ec2.images", (rowIds, pos) -> ec2.deregisterImage(DeregisterImageRequest.builder()
-                        .imageId(getStringRowId(rowIds, pos, metadata.getRowIdHandle(new SchemaTableName("ec2", "images"))))
-                        .build()))
-                .put("ec2.instances", (rowIds, pos) -> ec2.terminateInstances(
-                        TerminateInstancesRequest.builder()
-                                .instanceIds(
-                                        getStringRowId(rowIds, pos, metadata.getRowIdHandle(new SchemaTableName("ec2", "instances"))))
-                                .build()))
-                .buildOrThrow();
-        this.updaters = ImmutableMap.<String, BiConsumer<Page, Integer>>builder()
-                .put("ec2.instances", this::updateInstance)
-                .buildOrThrow();
+        this.handle = requireNonNull(handle, "handle is null");
+        this.table = requireNonNull(table, "table is null");
+        this.insertSink = table.inserter().map(_ -> new AwsPageSink(handle, table));
     }
 
     @Override
@@ -76,89 +51,47 @@ public class AwsMergeSink
     {
         Block rowIds = page.getBlock(page.getChannelCount() - 1);
         Block ops = page.getBlock(page.getChannelCount() - 2);
-        BiConsumer<Page, Integer> inserter = inserters.get(tableName);
-        BiConsumer<Page, Integer> updater = updaters.get(tableName);
-        BiConsumer<Block, Integer> deleter = deleters.get(tableName);
         for (int position = 0; position < page.getPositionCount(); position++) {
             byte op = TINYINT.getByte(ops, position);
+            int currentPosition = position;
             switch (op) {
-                case INSERT_OPERATION_NUMBER -> inserter.accept(page, position);
-                case UPDATE_OPERATION_NUMBER -> updater.accept(page, position);
+                case INSERT_OPERATION_NUMBER -> insertSink.orElseThrow(notSupported("Inserts")).insert(page, position);
+                case UPDATE_OPERATION_NUMBER -> table.updater().orElseThrow(notSupported("Updates"))
+                        .update(getRowId(page, position), column -> getColumnValue(page, currentPosition, column));
                 // TODO support batch operations, passing multiple IDs to the deleter
-                case DELETE_OPERATION_NUMBER -> deleter.accept(rowIds, position);
+                case DELETE_OPERATION_NUMBER -> table.deleter().orElseThrow(notSupported("Deletes"))
+                        .delete(getDeletedRowId(rowIds, position));
                 default -> throw new TrinoException(NOT_SUPPORTED, "Unsupported merge operation: " + op);
             }
         }
     }
 
     @Override
-    public long getCompletedBytes()
+    public CompletableFuture<Collection<Slice>> finish()
     {
-        return 0L;
+        return completedFuture(ImmutableList.of());
     }
 
-    private void updateInstance(Page page, int position)
+    private Supplier<TrinoException> notSupported(String operation)
     {
-        String rowId = getRowId(page, position);
-        String desiredState = getState(page, position);
-        switch (desiredState) {
-            case "running" -> ec2.startInstances(StartInstancesRequest.builder().instanceIds(rowId).build());
-            case "stopped" -> ec2.stopInstances(StopInstancesRequest.builder().instanceIds(rowId).build());
-            default -> throw new TrinoException(INVALID_COLUMN_REFERENCE, "Updates of ec2.instances.state column to %s are not supported".formatted(desiredState));
-        }
-        String desiredInstanceType = getInstanceType(page, position);
-        ec2.modifyInstanceAttribute(
-                ModifyInstanceAttributeRequest
-                        .builder()
-                        .instanceType(AttributeValue.builder().value(desiredInstanceType).build())
-                        .instanceId(rowId)
-                        .build());
+        return () -> new TrinoException(NOT_SUPPORTED, "%s are not supported for %s".formatted(operation, table.name()));
     }
 
     private String getRowId(Page page, int position)
     {
-        int channel = table.getColumnNames().indexOf("row_id");
+        return ((String) getColumnValue(page, position, AwsTable.ROW_ID)).toLowerCase(Locale.US);
+    }
+
+    private Object getColumnValue(Page page, int position, String columnName)
+    {
+        int channel = handle.getColumnNames().indexOf(columnName);
         Block block = page.getBlock(channel);
-        Object value = getValue(table.getColumnTypes().get(channel), position, block);
-        return ((String) value).toLowerCase(Locale.US);
+        return getValue(handle.getColumnTypes().get(channel), position, block);
     }
 
-    private String getState(Page page, int position)
+    private String getDeletedRowId(Block rowIds, int position)
     {
-        int channel = table.getColumnNames().indexOf("state");
-        Block block = page.getBlock(channel);
-        Object value = getValue(table.getColumnTypes().get(channel), position, block);
-        return (String) getValue(VARCHAR, 1, ((SqlMap) value).getRawKeyBlock());
-    }
-
-    private String getInstanceType(Page page, int position)
-    {
-        int channel = table.getColumnNames().indexOf("instance_type");
-        Block block = page.getBlock(channel);
-        Object value = getValue(table.getColumnTypes().get(channel), position, block);
-        return ((String) value).toLowerCase(Locale.US);
-    }
-
-    private String getStringRowId(Block rowIds, int position, AwsColumnHandle rowIdHandle)
-    {
-        return (String) getValue(rowIdHandle.getType(), position, rowIds);
-    }
-
-    private Object getValue(Type type, int position, Block block)
-    {
-        Class<?> javaType = type.getJavaType();
-        if (javaType == boolean.class) {
-            return type.getBoolean(block, position);
-        }
-        if (javaType == long.class) {
-            return type.getLong(block, position);
-        }
-        if (javaType == double.class) {
-            return type.getDouble(block, position);
-        }
-        if (javaType == Slice.class) {
-            return type.getSlice(block, position).toStringUtf8();
-        }
-        return type.getObject(block, position);
+        AwsColumnHandle rowIdColumn = table.rowIdColumn().orElseThrow(notSupported("Deletes"));
+        return (String) getValue(rowIdColumn.getType(), position, rowIds);
     }
 }

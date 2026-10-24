@@ -26,8 +26,6 @@ import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.ConnectorTableCredentials;
 import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.connector.MemoryContext;
-import software.amazon.awssdk.services.ec2.Ec2Client;
-import software.amazon.awssdk.services.s3.S3Client;
 
 import java.util.Optional;
 
@@ -36,33 +34,35 @@ import static java.util.Objects.requireNonNull;
 public class AwsPageSinkProvider
         implements ConnectorPageSinkProvider
 {
-    private final AwsMetadata metadata;
-    private final Ec2Client ec2;
-    private final S3Client s3;
+    private final AwsTables tables;
 
     @Inject
-    public AwsPageSinkProvider(AwsMetadata metadata, Ec2Client ec2, S3Client s3)
+    public AwsPageSinkProvider(AwsTables tables)
     {
-        this.metadata = requireNonNull(metadata, "metadata is null");
-        this.ec2 = requireNonNull(ec2, "ec2 is null");
-        this.s3 = requireNonNull(s3, "s3 is null");
+        this.tables = requireNonNull(tables, "tables is null");
     }
 
     @Override
     public ConnectorPageSink createPageSink(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorOutputTableHandle tableHandle, Optional<ConnectorTableCredentials> tableCredentials, ConnectorPageSinkId pageSinkId)
     {
-        return new AwsPageSink((AwsOutputTableHandle) tableHandle, ec2, s3);
+        return createPageSink((AwsOutputTableHandle) tableHandle);
     }
 
     @Override
     public ConnectorPageSink createPageSink(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorInsertTableHandle tableHandle, Optional<ConnectorTableCredentials> tableCredentials, ConnectorPageSinkId pageSinkId)
     {
-        return new AwsPageSink((AwsOutputTableHandle) tableHandle, ec2, s3);
+        return createPageSink((AwsOutputTableHandle) tableHandle);
     }
 
     @Override
     public ConnectorMergeSink createMergeSink(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorMergeTableHandle tableHandle, Optional<ConnectorTableCredentials> tableCredentials, ConnectorPageSinkId pageSinkId, MemoryContext memoryContext)
     {
-        return new AwsMergeSink((AwsOutputTableHandle) tableHandle, metadata, ec2, s3);
+        AwsOutputTableHandle handle = (AwsOutputTableHandle) tableHandle;
+        return new AwsMergeSink(handle, tables.require(handle.getTableHandle().getSchemaTableName()));
+    }
+
+    private AwsPageSink createPageSink(AwsOutputTableHandle handle)
+    {
+        return new AwsPageSink(handle, tables.require(handle.getTableHandle().getSchemaTableName()));
     }
 }

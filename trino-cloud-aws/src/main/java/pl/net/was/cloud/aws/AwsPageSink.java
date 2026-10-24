@@ -11,12 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package pl.net.was.cloud.aws;
 
 import com.google.common.base.CaseFormat;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import io.airlift.slice.Slice;
 import io.trino.spi.Page;
 import io.trino.spi.TrinoException;
@@ -24,74 +22,53 @@ import io.trino.spi.block.Block;
 import io.trino.spi.block.SqlMap;
 import io.trino.spi.connector.ConnectorPageSink;
 import io.trino.spi.type.MapType;
-import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeOperators;
+import pl.net.was.cloud.aws.AwsTable.Inserter;
 import software.amazon.awssdk.awscore.AwsRequest;
 import software.amazon.awssdk.core.SdkField;
 import software.amazon.awssdk.core.SdkPojo;
-import software.amazon.awssdk.services.ec2.Ec2Client;
-import software.amazon.awssdk.services.ec2.model.CreateImageRequest;
-import software.amazon.awssdk.services.ec2.model.RunInstancesRequest;
 import software.amazon.awssdk.services.ec2.model.Tag;
 import software.amazon.awssdk.services.ec2.model.TagSpecification;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 
 import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.BiConsumer;
 
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.trino.spi.StandardErrorCode.INVALID_COLUMN_REFERENCE;
+import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.CompletableFuture.completedFuture;
+import static pl.net.was.cloud.aws.PageValues.getValue;
 
 public class AwsPageSink
         implements ConnectorPageSink
 {
-    protected final AwsOutputTableHandle table;
-    protected final String tableName;
+    private final AwsOutputTableHandle handle;
+    private final String tableName;
+    private final Inserter inserter;
+    private final Map<String, SdkField<?>> fields;
 
-    protected final Map<String, BiConsumer<Page, Integer>> inserters;
-    private final Map<String, Map<String, SdkField<?>>> fields = ImmutableMap.<String, Map<String, SdkField<?>>>builder()
-            .put("ec2.images", getFieldsMap(CreateImageRequest.builder()))
-            .put("ec2.instances", getFieldsMap(RunInstancesRequest.builder()))
-            .buildOrThrow();
-
-    private Map<String, SdkField<?>> getFieldsMap(SdkPojo request)
+    public AwsPageSink(AwsOutputTableHandle handle, AwsTable table)
     {
-        return request
+        this.handle = requireNonNull(handle, "handle is null");
+        this.tableName = table.name().toString();
+        this.inserter = table.inserter()
+                .orElseThrow(() -> new TrinoException(NOT_SUPPORTED, "Inserts are not supported for " + tableName));
+        this.fields = ((SdkPojo) inserter.requestBuilder().get())
                 .sdkFields()
                 .stream()
-                .map(f -> Map.entry(
-                        CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, f.memberName()),
-                        f))
-                .collect(toImmutableMap(Map.Entry::getKey, Map.Entry::getValue));
-    }
-
-    public AwsPageSink(AwsOutputTableHandle table, Ec2Client ec2, S3Client s3)
-    {
-        requireNonNull(ec2, "ec2 is null");
-        requireNonNull(s3, "s3 is null");
-
-        this.table = table;
-        this.tableName = table.getTableHandle().getSchemaTableName().toString();
-
-        this.inserters = ImmutableMap.<String, BiConsumer<Page, Integer>>builder()
-                .put("ec2.images", (page, pos) -> ec2.createImage((CreateImageRequest) setFields(page, pos, CreateImageRequest.builder()).build()))
-                .put("ec2.instances", (page, pos) -> ec2.runInstances((RunInstancesRequest) setFields(page, pos, RunInstancesRequest.builder().minCount(1).maxCount(1)).build()))
-                .put("s3.buckets", (page, pos) -> s3.createBucket((CreateBucketRequest) setFields(page, pos, CreateBucketRequest.builder()).build()))
-                .buildOrThrow();
+                .collect(toImmutableMap(
+                        (SdkField<?> field) -> CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, field.memberName()),
+                        (SdkField<?> field) -> field));
     }
 
     @Override
     public CompletableFuture<?> appendPage(Page page)
     {
-        BiConsumer<Page, Integer> inserter = inserters.get(tableName);
         for (int position = 0; position < page.getPositionCount(); position++) {
-            inserter.accept(page, position);
+            insert(page, position);
         }
         return NOT_BLOCKED;
     }
@@ -105,6 +82,12 @@ public class AwsPageSink
     @Override
     public void abort() {}
 
+    void insert(Page page, int position)
+    {
+        AwsRequest.Builder request = setFields(page, position, inserter.requestBuilder().get());
+        inserter.executor().accept(request.build());
+    }
+
     private AwsRequest.Builder setFields(Page page, int position, AwsRequest.Builder request)
     {
         for (int channel = 0; channel < page.getChannelCount(); channel++) {
@@ -113,17 +96,17 @@ public class AwsPageSink
                 continue;
             }
 
-            String columnName = table.getColumnNames().get(channel);
-            SdkField<?> field = fields.get(tableName).get(columnName);
+            String columnName = handle.getColumnNames().get(channel);
+            SdkField<?> field = fields.get(columnName);
             if (field == null && columnName.equals("tags")) {
-                field = fields.get(tableName).get("tag_specifications");
+                field = fields.get("tag_specifications");
             }
             if (field == null) {
                 throw new TrinoException(INVALID_COLUMN_REFERENCE, "Inserts to %s with %s are not supported".formatted(tableName, columnName));
             }
 
             VARCHAR.getSlice(block, position).toStringUtf8();
-            Object value = getValue(table.getColumnTypes().get(channel), position, block);
+            Object value = getValue(handle.getColumnTypes().get(channel), position, block);
             if (columnName.equals("tags")) {
                 ImmutableList.Builder<Tag> tags = ImmutableList.builder();
                 Block array = (Block) value;
@@ -141,23 +124,5 @@ public class AwsPageSink
             field.set(request, value);
         }
         return request;
-    }
-
-    private Object getValue(Type type, int position, Block block)
-    {
-        Class<?> javaType = type.getJavaType();
-        if (javaType == boolean.class) {
-            return type.getBoolean(block, position);
-        }
-        if (javaType == long.class) {
-            return type.getLong(block, position);
-        }
-        if (javaType == double.class) {
-            return type.getDouble(block, position);
-        }
-        if (javaType == Slice.class) {
-            return type.getSlice(block, position).toStringUtf8();
-        }
-        return type.getObject(block, position);
     }
 }
