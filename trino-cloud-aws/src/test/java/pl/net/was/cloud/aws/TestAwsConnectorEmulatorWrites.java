@@ -66,6 +66,35 @@ final class TestAwsConnectorEmulatorWrites
     }
 
     @Test
+    void testInsertInstanceWithTags()
+    {
+        String subnetId = createSubnet();
+        assertUpdate(
+                "INSERT INTO aws.ec2.instances (image_id, instance_type, subnet_id, ebs_optimized, tags) VALUES ('%s', '%s', '%s', true, MAP(ARRAY['Name', 'Team'], ARRAY['inserted', 'data']))".formatted(IMAGE_ID, INSTANCE_TYPE, subnetId),
+                1);
+        String instanceId = (String) computeScalar("SELECT instance_id FROM aws.ec2.instances WHERE subnet_id = '%s'".formatted(subnetId));
+        // Floci ignores ebs_optimized, so it only checks that a boolean column can be inserted
+        assertQuery(
+                "SELECT tags['Name'], tags['Team'] FROM aws.ec2.instances WHERE instance_id = '%s'".formatted(instanceId),
+                "VALUES ('inserted', 'data')");
+        assertQuery(
+                "SELECT key, resource_type FROM aws.ec2.tags WHERE resource_id = '%s'".formatted(instanceId),
+                "VALUES ('Name', 'instance'), ('Team', 'instance')");
+    }
+
+    @Test
+    void testInsertBucket()
+    {
+        assertUpdate("INSERT INTO aws.s3.buckets (name) VALUES ('trino-inserted-bucket')", 1);
+        assertQuery("SELECT count(*) FROM aws.s3.buckets WHERE name = 'trino-inserted-bucket'", "VALUES 1");
+
+        assertQueryFails(
+                "INSERT INTO aws.s3.buckets (name, creation_date) VALUES ('trino-other-bucket', now())",
+                "Inserts to s3.buckets with creation_date are not supported");
+        assertQuery("SELECT count(*) FROM aws.s3.buckets WHERE name = 'trino-other-bucket'", "VALUES 0");
+    }
+
+    @Test
     void testMaxInsertedRows()
     {
         String subnetId = createSubnet();

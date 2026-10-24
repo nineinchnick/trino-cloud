@@ -13,6 +13,8 @@
  */
 package pl.net.was.cloud.aws;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
@@ -23,6 +25,7 @@ import io.trino.spi.block.Block;
 import io.trino.spi.block.SqlRow;
 import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.SchemaTableName;
+import pl.net.was.cloud.aws.AwsTable.ColumnSetter;
 import pl.net.was.cloud.aws.AwsTable.Inserter;
 import pl.net.was.cloud.aws.AwsTable.Updater;
 import pl.net.was.cloud.aws.filters.BucketFilter;
@@ -57,6 +60,7 @@ import software.amazon.awssdk.services.ec2.model.PrefixList;
 import software.amazon.awssdk.services.ec2.model.PublicIpv4Pool;
 import software.amazon.awssdk.services.ec2.model.Region;
 import software.amazon.awssdk.services.ec2.model.Reservation;
+import software.amazon.awssdk.services.ec2.model.ResourceType;
 import software.amazon.awssdk.services.ec2.model.RouteTable;
 import software.amazon.awssdk.services.ec2.model.RunInstancesRequest;
 import software.amazon.awssdk.services.ec2.model.SecurityGroup;
@@ -65,6 +69,7 @@ import software.amazon.awssdk.services.ec2.model.StartInstancesRequest;
 import software.amazon.awssdk.services.ec2.model.StopInstancesRequest;
 import software.amazon.awssdk.services.ec2.model.Subnet;
 import software.amazon.awssdk.services.ec2.model.TagDescription;
+import software.amazon.awssdk.services.ec2.model.TagSpecification;
 import software.amazon.awssdk.services.ec2.model.TerminateInstancesRequest;
 import software.amazon.awssdk.services.ec2.model.Volume;
 import software.amazon.awssdk.services.ec2.model.Vpc;
@@ -106,6 +111,7 @@ import static pl.net.was.cloud.aws.SdkColumns.mappedFields;
 import static pl.net.was.cloud.aws.SdkIterables.emptyOnErrorCodes;
 import static pl.net.was.cloud.aws.SdkIterables.fallbackOnErrorCodes;
 import static pl.net.was.cloud.aws.SdkRowEncoder.encodeRow;
+import static pl.net.was.cloud.aws.SdkValueConverter.toSdkValue;
 
 public class AwsTables
 {
@@ -128,7 +134,7 @@ public class AwsTables
                                 .rowSource((table, handle) -> images(ec2, table, handle))
                                 .filterApplier(new ImageFilter())
                                 .primaryKey("image_id")
-                                .inserter(new Inserter(CreateImageRequest::builder, request -> List.of(ec2.createImage((CreateImageRequest) request).imageId())))
+                                .inserter(new Inserter(CreateImageRequest::builder, request -> List.of(ec2.createImage((CreateImageRequest) request).imageId()), tagsSetter(ResourceType.IMAGE)))
                                 .deleter(rowId -> ec2.deregisterImage(DeregisterImageRequest.builder().imageId(rowId).build()))
                                 .build(),
                         simpleTable("ec2", "instance_types", InstanceTypeInfo.builder().sdkFields(), () -> ec2.describeInstanceTypesPaginator(DescribeInstanceTypesRequest.builder().build()).instanceTypes()),
@@ -140,7 +146,8 @@ public class AwsTables
                                 .primaryKey("instance_id")
                                 .inserter(new Inserter(
                                         () -> RunInstancesRequest.builder().minCount(1).maxCount(1),
-                                        request -> ec2.runInstances((RunInstancesRequest) request).instances().stream().map(Instance::instanceId).toList()))
+                                        request -> ec2.runInstances((RunInstancesRequest) request).instances().stream().map(Instance::instanceId).toList(),
+                                        tagsSetter(ResourceType.INSTANCE)))
                                 .updater(new Updater(ImmutableSet.of("state", "instance_type"), (rowId, values) -> updateInstance(ec2, rowId, values)))
                                 .deleter(rowId -> ec2.terminateInstances(TerminateInstancesRequest.builder().instanceIds(rowId).build()))
                                 .build(),
@@ -168,7 +175,7 @@ public class AwsTables
                         simpleTable("ec2", "vpn_gateways", VpnGateway.builder().sdkFields(), () -> ec2.describeVpnGateways().vpnGateways()),
                         AwsTable.builder(new SchemaTableName("s3", "buckets"), columns(Bucket.builder().sdkFields()))
                                 .rowSource((_, _) -> encodeRows(s3.listBucketsPaginator(ListBucketsRequest.builder().build()).buckets(), List.of()))
-                                .inserter(new Inserter(CreateBucketRequest::builder, request -> createBucket(s3, (CreateBucketRequest) request)))
+                                .inserter(new Inserter(CreateBucketRequest::builder, request -> createBucket(s3, (CreateBucketRequest) request), bucketSetters()))
                                 .build(),
                         bucketTable("objects", S3Object.builder().sdkFields(), bucketName -> s3.listObjectsV2Paginator(ListObjectsV2Request.builder().bucket(bucketName).build()).contents()),
                         bucketTable("object_versions", ObjectVersion.builder().sdkFields(), bucketName -> s3.listObjectVersionsPaginator(ListObjectVersionsRequest.builder().bucket(bucketName).build()).versions()),
@@ -308,10 +315,51 @@ public class AwsTables
                 List.of(o -> Slices.utf8Slice(((Instance) o).instanceId())));
     }
 
+    // tags are set using tag specifications, which also require the type of the created resource
+    private static Map<String, ColumnSetter> tagsSetter(ResourceType resourceType)
+    {
+        return ImmutableMap.of("tags", (request, type, block, position) -> {
+            TagSpecification.Builder tagSpecification = TagSpecification.builder().resourceType(resourceType);
+            SdkField<?> tagsField = requestField(tagSpecification, "Tags");
+            tagsField.set(tagSpecification, toSdkValue(tagsField, type, block, position));
+            requestField(request, "TagSpecifications").set(request, List.of(tagSpecification.build()));
+        });
+    }
+
+    private static SdkField<?> requestField(Object builder, String memberName)
+    {
+        return ((SdkPojo) builder).sdkFields().stream()
+                .filter(field -> field.memberName().equals(memberName))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("%s does not have a %s field".formatted(builder.getClass().getName(), memberName)));
+    }
+
+    // the bucket name is the name column, but the bucket field in the request
+    private static Map<String, ColumnSetter> bucketSetters()
+    {
+        return ImmutableMap.of(
+                "name", (request, _, block, position) -> ((CreateBucketRequest.Builder) request).bucket(VARCHAR.getSlice(block, position).toStringUtf8()),
+                "bucket_region", (request, _, block, position) -> ((CreateBucketRequest.Builder) request)
+                        .createBucketConfiguration(configuration -> configuration.locationConstraint(VARCHAR.getSlice(block, position).toStringUtf8())));
+    }
+
     private static List<String> createBucket(S3Client s3, CreateBucketRequest request)
     {
-        s3.createBucket(request);
+        s3.createBucket(withLocationConstraint(request, s3.serviceClientConfiguration().region().id()));
         return List.of(request.bucket());
+    }
+
+    // outside of us-east-1, S3 requires a location constraint matching the region of the endpoint
+    @VisibleForTesting
+    static CreateBucketRequest withLocationConstraint(CreateBucketRequest request, String region)
+    {
+        // us-east-1 is the default, and S3 rejects it as a location constraint
+        if (request.createBucketConfiguration() != null || region.equals("us-east-1")) {
+            return request;
+        }
+        return request.toBuilder()
+                .createBucketConfiguration(configuration -> configuration.locationConstraint(region))
+                .build();
     }
 
     // the instance type can only be changed when the instance is stopped, so it's changed before starting the instance

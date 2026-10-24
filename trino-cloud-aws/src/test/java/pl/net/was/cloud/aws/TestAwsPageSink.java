@@ -19,13 +19,20 @@ import io.trino.spi.TrinoException;
 import io.trino.spi.block.BlockBuilder;
 import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.SchemaTableName;
+import io.trino.spi.type.Type;
 import org.junit.jupiter.api.Test;
 import pl.net.was.cloud.aws.AwsTable.Inserter;
+import software.amazon.awssdk.services.ec2.model.Instance;
+import software.amazon.awssdk.services.ec2.model.Placement;
 import software.amazon.awssdk.services.ec2.model.RunInstancesRequest;
 
 import java.util.ArrayList;
 import java.util.List;
 
+import static io.trino.spi.type.BigintType.BIGINT;
+import static io.trino.spi.type.BooleanType.BOOLEAN;
+import static io.trino.spi.type.TimestampWithTimeZoneType.TIMESTAMP_TZ_MILLIS;
+import static io.trino.spi.type.TypeUtils.writeNativeValue;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -106,6 +113,46 @@ final class TestAwsPageSink
         assertThat(requests)
                 .extracting(RunInstancesRequest::clientToken)
                 .containsExactly("my-token");
+    }
+
+    @Test
+    void testConvertsColumnValues()
+    {
+        Type placementType = SdkColumns.columns(Instance.builder().sdkFields()).stream()
+                .filter(column -> column.getName().equals("placement"))
+                .map(ColumnMetadata::getType)
+                .findFirst()
+                .orElseThrow();
+        AwsInsertTableHandle handle = new AwsInsertTableHandle(
+                new AwsTableHandle(TABLE_NAME),
+                List.of("image_id", "placement", "ebs_optimized", "max_count"),
+                List.of(VARCHAR, placementType, BOOLEAN, BIGINT));
+        AwsPageSink sink = new AwsPageSink(handle, table(), new AwsPageSink.Settings("query/1", 10));
+        Placement placement = Placement.builder().availabilityZone("us-east-1a").build();
+
+        sink.appendPage(new Page(
+                imageIdsPage("ami-1").getBlock(0),
+                writeNativeValue(placementType, SdkRowEncoder.encodeValue(placementType, placement)),
+                writeNativeValue(BOOLEAN, true),
+                writeNativeValue(BIGINT, 1L))).join();
+
+        assertThat(requests).hasSize(1);
+        RunInstancesRequest request = requests.getFirst();
+        assertThat(request.placement()).isEqualTo(placement);
+        assertThat(request.ebsOptimized()).isTrue();
+        assertThat(request.maxCount()).isEqualTo(1);
+    }
+
+    @Test
+    void testRejectsColumnsWithoutRequestFields()
+    {
+        AwsInsertTableHandle handle = new AwsInsertTableHandle(new AwsTableHandle(TABLE_NAME), List.of("image_id", "launch_time"), List.of(VARCHAR, TIMESTAMP_TZ_MILLIS));
+        AwsPageSink sink = new AwsPageSink(handle, table(), new AwsPageSink.Settings("query/1", 10));
+
+        assertThatThrownBy(() -> sink.appendPage(new Page(imageIdsPage("ami-1").getBlock(0), writeNativeValue(TIMESTAMP_TZ_MILLIS, 0L))))
+                .isInstanceOf(TrinoException.class)
+                .hasMessage("Inserts to ec2.instances with launch_time are not supported");
+        assertThat(requests).isEmpty();
     }
 
     private AwsTable table()
