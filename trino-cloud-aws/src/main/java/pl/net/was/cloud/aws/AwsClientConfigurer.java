@@ -15,15 +15,21 @@
 package pl.net.was.cloud.aws;
 
 import com.google.inject.Inject;
+import pl.net.was.cloud.aws.AwsConfig.RetryMode;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.awscore.client.builder.AwsClientBuilder;
+import software.amazon.awssdk.awscore.client.builder.AwsSyncClientBuilder;
+import software.amazon.awssdk.awscore.retry.AwsRetryStrategy;
+import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.core.exception.SdkClientException;
+import software.amazon.awssdk.http.apache5.Apache5HttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.regions.providers.DefaultAwsRegionProviderChain;
+import software.amazon.awssdk.retries.api.RetryStrategy;
 import software.amazon.awssdk.services.sts.StsClient;
 import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
 import software.amazon.awssdk.utils.SdkAutoCloseable;
@@ -39,6 +45,8 @@ public class AwsClientConfigurer
 {
     private final Region region;
     private final Optional<URI> endpoint;
+    private final int maxConnections;
+    private final RetryStrategy retryStrategy;
     private final Optional<StsClient> stsClient;
     private final AwsCredentialsProvider credentialsProvider;
 
@@ -47,13 +55,17 @@ public class AwsClientConfigurer
     {
         this.region = resolveRegion(config);
         this.endpoint = config.getEndpoint();
+        this.maxConnections = config.getMaxConnections();
+        this.retryStrategy = retryStrategy(config.getRetryMode()).toBuilder()
+                .maxAttempts(config.getMaxErrorRetries() + 1)
+                .build();
         AwsCredentialsProvider sourceCredentialsProvider = createSourceCredentialsProvider(config);
         if (config.getIamRole().isEmpty()) {
             this.stsClient = Optional.empty();
             this.credentialsProvider = sourceCredentialsProvider;
             return;
         }
-        StsClient stsClient = configureRegionAndEndpoint(StsClient.builder(), region, endpoint)
+        StsClient stsClient = configureClient(StsClient.builder())
                 .credentialsProvider(sourceCredentialsProvider)
                 .build();
         this.stsClient = Optional.of(stsClient);
@@ -66,9 +78,9 @@ public class AwsClientConfigurer
                 .build();
     }
 
-    public <B extends AwsClientBuilder<B, ?>> B configure(B builder)
+    public <B extends AwsClientBuilder<B, ?> & AwsSyncClientBuilder<B, ?>> B configure(B builder)
     {
-        return configureRegionAndEndpoint(builder, region, endpoint)
+        return configureClient(builder)
                 .credentialsProvider(credentialsProvider);
     }
 
@@ -126,10 +138,24 @@ public class AwsClientConfigurer
         return DefaultCredentialsProvider.builder().build();
     }
 
-    private static <B extends AwsClientBuilder<B, ?>> B configureRegionAndEndpoint(B builder, Region region, Optional<URI> endpoint)
+    private <B extends AwsClientBuilder<B, ?> & AwsSyncClientBuilder<B, ?>> B configureClient(B builder)
     {
         builder.region(region);
         endpoint.ifPresent(builder::endpointOverride);
+        builder.httpClientBuilder(Apache5HttpClient.builder()
+                .maxConnections(maxConnections));
+        builder.overrideConfiguration(ClientOverrideConfiguration.builder()
+                .retryStrategy(retryStrategy)
+                .build());
         return builder;
+    }
+
+    private static RetryStrategy retryStrategy(RetryMode retryMode)
+    {
+        return switch (retryMode) {
+            case STANDARD -> AwsRetryStrategy.standardRetryStrategy();
+            case LEGACY -> AwsRetryStrategy.legacyRetryStrategy();
+            case ADAPTIVE -> AwsRetryStrategy.adaptiveRetryStrategy();
+        };
     }
 }

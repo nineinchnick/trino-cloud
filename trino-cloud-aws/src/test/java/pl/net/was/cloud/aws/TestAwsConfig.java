@@ -17,6 +17,7 @@ package pl.net.was.cloud.aws;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
+import pl.net.was.cloud.aws.AwsConfig.RetryMode;
 
 import java.net.URI;
 import java.util.Map;
@@ -39,7 +40,10 @@ final class TestAwsConfig
                 .setProfile(null)
                 .setIamRole(null)
                 .setExternalId(null)
-                .setRoleSessionName("trino-cloud"));
+                .setRoleSessionName("trino-cloud")
+                .setMaxConnections(50)
+                .setRetryMode(RetryMode.ADAPTIVE)
+                .setMaxErrorRetries(10));
     }
 
     @Test
@@ -53,6 +57,9 @@ final class TestAwsConfig
                 .put("aws.iam-role", "arn:aws:iam::123456789012:role/trino")
                 .put("aws.external-id", "external")
                 .put("aws.role-session-name", "session")
+                .put("aws.max-connections", "10")
+                .put("aws.retry-mode", "STANDARD")
+                .put("aws.max-error-retries", "3")
                 .buildOrThrow();
 
         AwsConfig expected = new AwsConfig()
@@ -62,7 +69,10 @@ final class TestAwsConfig
                 .setSecretKey("secret")
                 .setIamRole("arn:aws:iam::123456789012:role/trino")
                 .setExternalId("external")
-                .setRoleSessionName("session");
+                .setRoleSessionName("session")
+                .setMaxConnections(10)
+                .setRetryMode(RetryMode.STANDARD)
+                .setMaxErrorRetries(3);
 
         // aws.profile is mutually exclusive with static credentials, so it's mapped in a separate test
         assertFullMapping(properties, expected, ImmutableSet.of("aws.profile"));
@@ -78,6 +88,9 @@ final class TestAwsConfig
                 .put("aws.iam-role", "arn:aws:iam::123456789012:role/trino")
                 .put("aws.external-id", "external")
                 .put("aws.role-session-name", "session")
+                .put("aws.max-connections", "10")
+                .put("aws.retry-mode", "STANDARD")
+                .put("aws.max-error-retries", "3")
                 .buildOrThrow();
 
         AwsConfig expected = new AwsConfig()
@@ -86,7 +99,10 @@ final class TestAwsConfig
                 .setProfile("production")
                 .setIamRole("arn:aws:iam::123456789012:role/trino")
                 .setExternalId("external")
-                .setRoleSessionName("session");
+                .setRoleSessionName("session")
+                .setMaxConnections(10)
+                .setRetryMode(RetryMode.STANDARD)
+                .setMaxErrorRetries(3);
 
         assertFullMapping(properties, expected, ImmutableSet.of("aws.access-key", "aws.secret-key"));
     }
