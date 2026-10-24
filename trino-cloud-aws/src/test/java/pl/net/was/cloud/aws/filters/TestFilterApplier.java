@@ -27,6 +27,7 @@ import org.junit.jupiter.api.Test;
 import pl.net.was.cloud.aws.AwsColumnHandle;
 import pl.net.was.cloud.aws.AwsTableHandle;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -66,6 +67,30 @@ final class TestFilterApplier
 
         assertThat(FILTER_APPLIER.getFilter(ID, table.constraint())).isNull();
         assertThat(FILTER_APPLIER.getFilter(ID, table.constraint(), "default")).isEqualTo("default");
+    }
+
+    @Test
+    void testPushesDownInList()
+    {
+        AwsTableHandle table = new AwsTableHandle(new SchemaTableName("ec2", "images"));
+        Domain inList = Domain.multipleValues(VARCHAR, List.of(utf8Slice("a"), utf8Slice("b")));
+
+        Optional<ConstraintApplicationResult<ConnectorTableHandle>> result = applyFilter(table, Map.of(ID, inList));
+
+        assertThat(result).isPresent();
+        AwsTableHandle newTable = (AwsTableHandle) result.orElseThrow().getHandle();
+        assertThat(newTable.constraint()).isEqualTo(TupleDomain.withColumnDomains(Map.of(ID, inList)));
+        assertThat(FILTER_APPLIER.getFilterValues(ID, newTable.constraint())).containsExactly("a", "b");
+    }
+
+    @Test
+    void testFilterValues()
+    {
+        AwsTableHandle table = new AwsTableHandle(new SchemaTableName("ec2", "images"));
+
+        assertThat(FILTER_APPLIER.getFilterValues(ID, table.constraint())).isEmpty();
+        assertThat(FILTER_APPLIER.getFilterValues(ID, TupleDomain.withColumnDomains(Map.of(ID, Domain.singleValue(VARCHAR, utf8Slice("a"))))))
+                .containsExactly("a");
     }
 
     @Test
