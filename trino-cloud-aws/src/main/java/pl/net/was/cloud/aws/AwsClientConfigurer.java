@@ -26,6 +26,7 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.regions.providers.DefaultAwsRegionProviderChain;
 import software.amazon.awssdk.services.sts.StsClient;
 import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
+import software.amazon.awssdk.utils.SdkAutoCloseable;
 
 import java.net.URI;
 import java.util.Optional;
@@ -34,9 +35,11 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.stream.Collectors.joining;
 
 public class AwsClientConfigurer
+        implements AutoCloseable
 {
     private final Region region;
     private final Optional<URI> endpoint;
+    private final Optional<StsClient> stsClient;
     private final AwsCredentialsProvider credentialsProvider;
 
     @Inject
@@ -44,13 +47,42 @@ public class AwsClientConfigurer
     {
         this.region = resolveRegion(config);
         this.endpoint = config.getEndpoint();
-        this.credentialsProvider = createCredentialsProvider(config, region, endpoint);
+        AwsCredentialsProvider sourceCredentialsProvider = createSourceCredentialsProvider(config);
+        if (config.getIamRole().isEmpty()) {
+            this.stsClient = Optional.empty();
+            this.credentialsProvider = sourceCredentialsProvider;
+            return;
+        }
+        StsClient stsClient = configureRegionAndEndpoint(StsClient.builder(), region, endpoint)
+                .credentialsProvider(sourceCredentialsProvider)
+                .build();
+        this.stsClient = Optional.of(stsClient);
+        this.credentialsProvider = StsAssumeRoleCredentialsProvider.builder()
+                .refreshRequest(request -> request
+                        .roleArn(config.getIamRole().get())
+                        .roleSessionName(config.getRoleSessionName())
+                        .externalId(config.getExternalId().orElse(null)))
+                .stsClient(stsClient)
+                .build();
     }
 
     public <B extends AwsClientBuilder<B, ?>> B configure(B builder)
     {
         return configureRegionAndEndpoint(builder, region, endpoint)
                 .credentialsProvider(credentialsProvider);
+    }
+
+    @Override
+    public void close()
+    {
+        try {
+            if (credentialsProvider instanceof SdkAutoCloseable closeable) {
+                closeable.close();
+            }
+        }
+        finally {
+            stsClient.ifPresent(StsClient::close);
+        }
     }
 
     private static Region resolveRegion(AwsConfig config)
@@ -79,24 +111,6 @@ public class AwsClientConfigurer
         catch (SdkClientException e) {
             throw new IllegalStateException("aws.region is not set and the AWS SDK default region provider chain could not resolve a region", e);
         }
-    }
-
-    private static AwsCredentialsProvider createCredentialsProvider(AwsConfig config, Region region, Optional<URI> endpoint)
-    {
-        AwsCredentialsProvider sourceCredentialsProvider = createSourceCredentialsProvider(config);
-        if (config.getIamRole().isEmpty()) {
-            return sourceCredentialsProvider;
-        }
-        StsClient stsClient = configureRegionAndEndpoint(StsClient.builder(), region, endpoint)
-                .credentialsProvider(sourceCredentialsProvider)
-                .build();
-        return StsAssumeRoleCredentialsProvider.builder()
-                .refreshRequest(request -> request
-                        .roleArn(config.getIamRole().get())
-                        .roleSessionName(config.getRoleSessionName())
-                        .externalId(config.getExternalId().orElse(null)))
-                .stsClient(stsClient)
-                .build();
     }
 
     private static AwsCredentialsProvider createSourceCredentialsProvider(AwsConfig config)
