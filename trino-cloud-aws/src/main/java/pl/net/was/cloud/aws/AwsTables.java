@@ -176,7 +176,8 @@ public class AwsTables
                                         // owners can be given as aliases, like self or amazon, but the owner_id column always holds account IDs,
                                         // and without an owner, AWS lists all public images, which is slow and rarely useful, unless the IDs limit the results
                                         .add(requestMember("owner_id", "Owners").unenforced().defaultValues(() -> List.of(SELF_OWNER), "image_id"))
-                                        .add(ec2Filter("name", "name"))
+                                        // AMI names can't contain *, ? or \, so a pattern always matches a superset of the exact names
+                                        .add(ec2Filter("name", "name").withPrefixes())
                                         .addAll(ec2Filters(
                                                 TAG_FILTERS,
                                                 "architecture",
