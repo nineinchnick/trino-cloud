@@ -114,7 +114,7 @@ public interface FilterApplier
         //noinspection OptionalGetWithoutIsPresent
         Domain domain = constraint.getDomains().get().get(column);
         if (domain == null) {
-            log.debug("Missing filter on %s", column.getName());
+            log.debug("Missing filter on %s", column.name());
             return null;
         }
         TupleDomain<ColumnHandle> newConstraint = constraint.filter(
@@ -127,7 +127,7 @@ public interface FilterApplier
                 // normalize the constraint into a low-bound range
                 Range span = domain.getValues().getRanges().getSpan();
                 if (span.isLowUnbounded()) {
-                    log.debug("Not pushing down filter on %s because it does not have a lower bound: %s", column.getName(), domain);
+                    log.debug("Not pushing down filter on %s because it does not have a lower bound: %s", column.name(), domain);
                     return null;
                 }
                 newConstraint = TupleDomain.withColumnDomains(Map.of(
@@ -140,7 +140,7 @@ public interface FilterApplier
             }
             case EQUAL -> {
                 if (!domain.getValues().isDiscreteSet() && !domain.getValues().getRanges().getOrderedRanges().stream().allMatch(Range::isSingleValue)) {
-                    log.debug("Not pushing down filter on %s because it's not a discrete set: %s", column.getName(), domain);
+                    log.debug("Not pushing down filter on %s because it's not a discrete set: %s", column.name(), domain);
                     return null;
                 }
                 return newConstraint;
@@ -163,7 +163,7 @@ public interface FilterApplier
         }
         if (supportedFilter == EQUAL) {
             // can push down only the first predicate against this column
-            throw new TrinoException(INVALID_ROW_FILTER, "Already pushed down a predicate for " + column.getName() + " which only supports a single value");
+            throw new TrinoException(INVALID_ROW_FILTER, "Already pushed down a predicate for " + column.name() + " which only supports a single value");
         }
         // don't need to check for GREATER_THAN_EQUAL since there can only be a single low-bound range, so union would work
         return true;
@@ -183,14 +183,14 @@ public interface FilterApplier
         if (domain == null) {
             return defaultValue;
         }
-        return switch (column.getType().getBaseName()) {
+        return switch (column.type().getBaseName()) {
             case StandardTypes.TIMESTAMP, StandardTypes.TIMESTAMP_WITH_TIME_ZONE -> {
                 long since = (long) domain.getValues().getRanges().getSpan().getLowBoundedValue();
                 yield ISO_LOCAL_DATE_TIME.format(fromTrinoTimestamp(since)) + "Z";
             }
             case StandardTypes.VARCHAR -> ((Slice) domain.getSingleValue()).toStringUtf8();
             case StandardTypes.BIGINT, StandardTypes.INTEGER -> domain.getSingleValue();
-            default -> throw new TrinoException(INVALID_ROW_FILTER, "Unexpected constraint for " + column.getName() + "(" + column.getType().getBaseName() + ")");
+            default -> throw new TrinoException(INVALID_ROW_FILTER, "Unexpected constraint for " + column.name() + "(" + column.type().getBaseName() + ")");
         };
     }
 

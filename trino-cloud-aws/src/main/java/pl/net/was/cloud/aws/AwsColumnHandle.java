@@ -14,56 +14,17 @@
 
 package pl.net.was.cloud.aws;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.type.Type;
 
-import java.util.Objects;
+import static java.util.Objects.requireNonNull;
 
-public class AwsColumnHandle
+public record AwsColumnHandle(String name, Type type)
         implements ColumnHandle
 {
-    private final String name;
-    private final Type type;
-
-    @JsonCreator
-    public AwsColumnHandle(
-            @JsonProperty("name") String name,
-            @JsonProperty("type") Type type)
+    public AwsColumnHandle
     {
-        this.name = name;
-        this.type = type;
-    }
-
-    @JsonProperty("name")
-    public String getName()
-    {
-        return name;
-    }
-
-    @JsonProperty("type")
-    public Type getType()
-    {
-        return type;
-    }
-
-    @Override
-    public boolean equals(Object o)
-    {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        AwsColumnHandle that = (AwsColumnHandle) o;
-        return Objects.equals(name, that.name);
-    }
-
-    @Override
-    public int hashCode()
-    {
-        return Objects.hash(name);
+        requireNonNull(name, "name is null");
+        requireNonNull(type, "type is null");
     }
 }

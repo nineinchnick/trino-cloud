@@ -92,6 +92,6 @@ public class AwsMergeSink
     private String getDeletedRowId(Block rowIds, int position)
     {
         AwsColumnHandle rowIdColumn = table.rowIdColumn().orElseThrow(notSupported("Deletes"));
-        return (String) getValue(rowIdColumn.getType(), position, rowIds);
+        return (String) getValue(rowIdColumn.type(), position, rowIds);
     }
 }
