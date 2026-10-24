@@ -38,6 +38,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 import static java.util.function.Function.identity;
@@ -63,7 +64,10 @@ public final class AwsTable
     {
         this.name = requireNonNull(builder.name, "name is null");
         requireNonNull(builder.columns, "columns is null");
-        this.columns = builder.columns.columnMetadata();
+        List<ColumnMetadata> sdkColumns = builder.columns.columnMetadata();
+        this.rowSource = requireNonNull(builder.rowSource, "rowSource is null");
+        this.filters = TableFilters.create(name, sdkColumns, builder.filters, rowSource.requestFields());
+        this.columns = withComments(sdkColumns, filters.descriptions());
         this.columnsByName = columns.stream()
                 .collect(toImmutableMap(ColumnMetadata::getName, identity()));
         this.columnHandles = columns.stream()
@@ -74,8 +78,6 @@ public final class AwsTable
             columnWriters.put(columns.get(i).getName(), writers.get(i));
         }
         this.columnWriters = columnWriters.buildOrThrow();
-        this.rowSource = requireNonNull(builder.rowSource, "rowSource is null");
-        this.filters = TableFilters.create(name, columns, builder.filters, rowSource.requestFields());
         this.primaryKey = Optional.ofNullable(builder.primaryKey);
         this.inserter = Optional.ofNullable(builder.inserter);
         this.updater = Optional.ofNullable(builder.updater);
@@ -173,6 +175,25 @@ public final class AwsTable
     public boolean supportsMerge()
     {
         return updater.isPresent() || deleter.isPresent();
+    }
+
+    // DESCRIBE and information_schema.columns show the comments, so users can find out which predicates AWS applies
+    private static List<ColumnMetadata> withComments(List<ColumnMetadata> columns, Map<String, String> comments)
+    {
+        return columns.stream()
+                .map(column -> {
+                    String comment = comments.get(column.getName());
+                    if (comment == null) {
+                        return column;
+                    }
+                    String combinedComment = column.getComment()
+                            .map(existingComment -> existingComment + ". " + comment)
+                            .orElse(comment);
+                    return ColumnMetadata.builderFrom(column)
+                            .setComment(Optional.of(combinedComment))
+                            .build();
+                })
+                .collect(toImmutableList());
     }
 
     @FunctionalInterface

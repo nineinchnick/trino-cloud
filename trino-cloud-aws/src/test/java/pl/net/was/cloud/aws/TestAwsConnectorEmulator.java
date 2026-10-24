@@ -626,7 +626,11 @@ final class TestAwsConnectorEmulator
     void testColumnComments()
     {
         assertThat(columnComment("ec2", "images", "instance_id")).isEqualTo("Only used by INSERT, always NULL when reading");
-        assertThat(columnComment("ec2", "images", "image_id")).isEqualTo("");
+        assertThat(columnComment("ec2", "images", "image_id")).isEqualTo("Pushed down: = and IN");
+        assertThat(columnComment("ec2", "images", "architecture")).isEqualTo("Pushed down: = and IN");
+        assertThat(columnComment("ec2", "images", "block_device_mappings")).isEqualTo("");
+        assertThat(columnComment("ec2", "instances", "tags")).isEqualTo("Pushed down: = and IN on map entries");
+        assertThat(columnComment("s3", "objects", "key")).isEqualTo("Pushed down: =, IN and LIKE 'prefix%'");
         assertQuery(
                 "SELECT comment FROM aws.information_schema.columns WHERE table_schema = 'ec2' AND table_name = 'images' AND column_name = 'instance_id'",
                 "VALUES 'Only used by INSERT, always NULL when reading'");

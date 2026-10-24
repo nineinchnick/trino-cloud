@@ -423,94 +423,25 @@ LIMIT 10;
 
 ## Pushed-down filters
 
-Equality and `IN` predicates on the following columns are pushed down to the AWS
-API operations that list the resources. Predicates on the `region` column are
-pushed down for every `ec2` table except `ec2.regions`, and are not listed.
+Predicates on some columns are pushed down to the AWS API operations that list
+the resources, so AWS returns fewer rows. The comments of these columns, shown by
+`DESCRIBE` and in `information_schema.columns`, say which predicates are pushed
+down:
 
-- `ec2.availability_zones`: `group_long_name`, `group_name`, `opt_in_status`,
-  `parent_zone_id`, `parent_zone_name`, `region_name`, `state`, `zone_id`,
-  `zone_name`, `zone_type`
-- `ec2.images`: `architecture`, `boot_mode`, `creation_date`, `description`,
-  `ena_support`, `free_tier_eligible`, `hypervisor`, `image_allowed`,
-  `image_id`, `image_type`, `kernel_id`, `name`, `owner_id`, `ramdisk_id`,
-  `root_device_name`, `root_device_type`, `source_image_id`,
-  `source_image_region`, `source_instance_id`, `sriov_net_support`, `state`,
-  `tags`, `virtualization_type`
-- `ec2.instance_types`: `auto_recovery_supported`, `bare_metal`,
-  `burstable_performance_supported`, `current_generation`,
-  `dedicated_hosts_supported`, `free_tier_eligible`, `hibernation_supported`,
-  `hypervisor`, `instance_storage_supported`, `instance_type`,
-  `nitro_enclaves_support`, `nitro_tpm_support`, `reboot_migration_support`
-- `ec2.instances`: `architecture`, `boot_mode`, `capacity_reservation_id`,
-  `client_token`, `current_instance_boot_mode`, `ebs_optimized`, `ena_support`,
-  `hypervisor`, `image_id`, `instance_id`, `instance_lifecycle`,
-  `instance_type`, `ipv6_address`, `kernel_id`, `key_name`, `outpost_arn`,
-  `platform_details`, `private_dns_name`, `private_ip_address`, `ramdisk_id`,
-  `root_device_name`, `root_device_type`, `source_dest_check`,
-  `spot_instance_request_id`, `state_name`, `subnet_id`, `tags`, `tpm_support`,
-  `usage_operation`, `virtualization_type`, `vpc_id`
-- `ec2.key_pairs`: `key_name`, `key_pair_id`, `tags`
-- `ec2.launch_templates`: `launch_template_name`, `tags`
-- `ec2.nat_gateways`: `nat_gateway_id`, `state`, `subnet_id`, `tags`, `vpc_id`
-- `ec2.network_interfaces`: `availability_zone`, `availability_zone_id`,
-  `description`, `interface_type`, `mac_address`, `network_interface_id`,
-  `owner_id`, `private_dns_name`, `private_ip_address`, `requester_id`,
-  `requester_managed`, `source_dest_check`, `status`, `subnet_id`, `tag_set`,
-  `vpc_id`
-- `ec2.placement_groups`: `group_arn`, `group_name`, `spread_level`, `state`,
-  `strategy`, `tags`
-- `ec2.prefix_lists`: `prefix_list_id`, `prefix_list_name`
-- `ec2.public_ipv4_pools`: `tags`
-- `ec2.regions`: `endpoint`, `opt_in_status`, `region_name`
-- `ec2.route_tables`: `owner_id`, `route_table_id`, `tags`, `vpc_id`
-- `ec2.security_groups`: `description`, `group_id`, `group_name`, `owner_id`,
-  `tags`, `vpc_id`
-- `ec2.snapshots`: `description`, `encrypted`, `owner_id`, `snapshot_id`,
-  `state`, `storage_tier`, `tags`, `transfer_type`, `volume_id`, `volume_size`
-- `ec2.subnets`: `availability_zone`, `availability_zone_id`,
-  `available_ip_address_count`, `cidr_block`, `customer_owned_ipv4_pool`,
-  `default_for_az`, `enable_dns64`, `enable_lni_at_device_index`, `ipv6_native`,
-  `map_customer_owned_ip_on_launch`, `map_public_ip_on_launch`, `outpost_arn`,
-  `owner_id`, `state`, `subnet_arn`, `subnet_id`, `tags`, `vpc_id`
-- `ec2.tags`: `key`, `resource_id`, `resource_type`, `value`
-- `ec2.volumes`: `availability_zone`, `availability_zone_id`, `encrypted`,
-  `fast_restored`, `multi_attach_enabled`, `size`, `snapshot_id`, `state`,
-  `tags`, `volume_id`, `volume_type`
-- `ec2.vpc_endpoints`: `ip_address_type`, `service_name`, `service_region`,
-  `tags`, `vpc_endpoint_id`, `vpc_endpoint_type`, `vpc_id`
-- `ec2.vpc_peering_connections`: `tags`, `vpc_peering_connection_id`
-- `ec2.vpcs`: `dhcp_options_id`, `is_default`, `owner_id`, `state`, `tags`,
-  `vpc_id`
-- `ec2.vpn_connections`: `customer_gateway_id`, `state`, `tags`,
-  `transit_gateway_id`, `type`, `vpn_connection_id`, `vpn_gateway_id`
-- `ec2.vpn_gateways`: `amazon_side_asn`, `availability_zone`, `state`, `tags`,
-  `type`, `vpn_gateway_id`
-- `s3.buckets`: `bucket_region`, `name`
-- `s3.deleted_objects`: `bucket_name`, `key`
-- `s3.object_versions`: `bucket_name`, `key`
-- `s3.objects`: `bucket_name`, `key`
+- `Pushed down: = and IN`: equality and `IN` predicates.
+- `Pushed down: =, IN and LIKE 'prefix%'`: also `LIKE` predicates with a fixed
+  prefix, and ranges of values with a common prefix.
+- `Pushed down: = and IN on map entries`: equality and `IN` predicates on the
+  values of map entries, like `tags['Name'] = 'value'`.
 
-Predicates on columns that are parameters of the AWS API operation, like
-`image_id`, `snapshot_id` and `bucket_name`, return only the matching rows.
-Predicates on other columns of `ec2` tables are pushed down as EC2 filters with
-the same name, like the `vpc-id` filter for the `vpc_id` column, or the
-`instance-state-name` filter for the `state_name` column of `ec2.instances`.
-EC2 filter values treat `*` and `?` as wildcards, so Trino still applies these
-predicates to the returned rows.
+For example:
 
-For the `tags` column, and the `tag_set` column of `ec2.network_interfaces`,
-equality and `IN` predicates on the value of a tag, like `tags['Name'] = 'web'`
-or `element_at(tags, 'Name') IN ('web', 'db')`, are pushed down as the
-`tag:Name` EC2 filter.
+```sql
+DESCRIBE aws.ec2.instances;
+```
 
-Predicates on the `key` column of the `s3` object tables, and on the `name`
-column of `s3.buckets`, are pushed down as the prefix of the listed keys or
-bucket names. Predicates that only match values starting with the same prefix,
-like `key LIKE 'logs/2024/%'`, `starts_with(key, 'logs/')`, or
-`key >= 'logs/2024' AND key < 'logs/2025'`, are pushed down as that prefix.
-Every value of an equality or `IN` predicate is listed as a prefix in a separate
-split. Trino applies the whole predicate to the listed keys, so in
-`key LIKE 'logs/%.json'`, only the `logs/` prefix limits the listed keys.
+Trino still applies predicates that AWS can't apply exactly, like EC2 filter
+values, which treat `*` and `?` as wildcards.
 
 # SQL support
 
