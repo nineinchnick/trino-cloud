@@ -36,7 +36,6 @@ public class AwsModule
         binder.bind(AwsTables.class).in(Scopes.SINGLETON);
         binder.bind(AwsMetadata.class).in(Scopes.SINGLETON);
         binder.bind(AwsSplitManager.class).in(Scopes.SINGLETON);
-        binder.bind(AwsRecordSetProvider.class).in(Scopes.SINGLETON);
         binder.bind(AwsPageSourceProvider.class).in(Scopes.SINGLETON);
         binder.bind(AwsPageSinkProvider.class).in(Scopes.SINGLETON);
         configBinder(binder).bindConfig(AwsConfig.class);

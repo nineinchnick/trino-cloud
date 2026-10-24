@@ -25,23 +25,22 @@ import io.trino.spi.connector.ConnectorTableHandle;
 import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.connector.DynamicFilter;
 import io.trino.spi.connector.MemoryContext;
-import io.trino.spi.connector.RecordPageSource;
-import io.trino.spi.connector.RecordSet;
 
 import java.util.List;
 import java.util.Optional;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 public class AwsPageSourceProvider
         implements ConnectorPageSourceProvider
 {
-    private final AwsRecordSetProvider recordSetProvider;
+    private final AwsTables tables;
 
     @Inject
-    public AwsPageSourceProvider(AwsRecordSetProvider recordSetProvider)
+    public AwsPageSourceProvider(AwsTables tables)
     {
-        this.recordSetProvider = requireNonNull(recordSetProvider, "recordSetProvider is null");
+        this.tables = requireNonNull(tables, "tables is null");
     }
 
     @Override
@@ -55,7 +54,10 @@ public class AwsPageSourceProvider
             DynamicFilter dynamicFilter,
             MemoryContext memoryContext)
     {
-        RecordSet recordSet = recordSetProvider.getRecordSet(transaction, session, split, table, columns);
-        return new RecordPageSource(recordSet);
+        AwsTableHandle tableHandle = (AwsTableHandle) table;
+        List<AwsColumnHandle> columnHandles = columns.stream()
+                .map(AwsColumnHandle.class::cast)
+                .collect(toImmutableList());
+        return new AwsPageSource(tables.require(tableHandle.schemaTableName()), tableHandle, columnHandles, memoryContext);
     }
 }
