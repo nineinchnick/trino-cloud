@@ -79,10 +79,9 @@ public class AwsMetadata
         if (startVersion.isPresent() || endVersion.isPresent()) {
             throw new TrinoException(StandardErrorCode.NOT_SUPPORTED, "This connector does not support versioned tables");
         }
-        if (!listSchemaNames(session).contains(tableName.getSchemaName())) {
-            return null;
-        }
-        return new AwsTableHandle(tableName);
+        return tables.get(tableName)
+                .map(table -> new AwsTableHandle(table.name()))
+                .orElse(null);
     }
 
     @Override
@@ -102,6 +101,7 @@ public class AwsMetadata
     {
         return tables.all().stream()
                 .map(AwsTable::name)
+                .filter(name -> schemaName.isEmpty() || name.getSchemaName().equals(schemaName.get()))
                 .collect(toImmutableList());
     }
 
