@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.core.SdkPojo;
 import software.amazon.awssdk.services.ec2.model.Instance;
 import software.amazon.awssdk.services.ec2.model.NatGateway;
+import software.amazon.awssdk.services.ec2.model.ReservedInstances;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 
 import java.time.Instant;
@@ -110,6 +111,17 @@ final class TestSdkRowEncoder
         assertThat(encodedValue(GetObjectResponse.builder().build(), "Metadata")).isNull();
         assertThat(decodeMap(encodedValue(GetObjectResponse.builder().metadata(Map.of("owner", "trino")).build(), "Metadata")))
                 .containsExactly(entry("owner", "trino"));
+    }
+
+    @Test
+    void testFloatIsEncodedAsIntBits()
+    {
+        ReservedInstances reservedInstances = ReservedInstances.builder()
+                .fixedPrice(1.5f)
+                .build();
+
+        assertThat(encodedValue(reservedInstances, "FixedPrice")).isEqualTo((long) Float.floatToIntBits(1.5f));
+        assertThat(encodedValue(reservedInstances, "UsagePrice")).isNull();
     }
 
     private static Object encodedValue(SdkPojo object, String memberName)
