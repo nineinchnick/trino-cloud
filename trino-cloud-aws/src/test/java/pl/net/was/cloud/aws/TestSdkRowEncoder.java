@@ -180,7 +180,7 @@ final class TestSdkRowEncoder
 
     private static Object encodedValue(SdkPojo object, String memberName)
     {
-        SdkField<?> field = SdkColumns.mappedFields(object.sdkFields()).get(fieldIndex(object, memberName));
+        SdkField<?> field = SdkColumns.mappedFields(object).get(fieldIndex(object, memberName));
         Type type = SdkColumns.type(field);
         BlockBuilder output = type.createBlockBuilder(null, 1);
         SdkRowEncoder.fieldWriter(field).write(new SdkRow(object), output);
@@ -196,7 +196,7 @@ final class TestSdkRowEncoder
 
     private static Object decodedValue(SdkPojo object, String memberName)
     {
-        SdkField<?> field = SdkColumns.mappedFields(object.sdkFields()).get(fieldIndex(object, memberName));
+        SdkField<?> field = SdkColumns.mappedFields(object).get(fieldIndex(object, memberName));
         return decode(SdkColumns.type(field), encodedValue(object, memberName));
     }
 
@@ -213,7 +213,7 @@ final class TestSdkRowEncoder
 
     private static int fieldIndex(SdkPojo object, String memberName)
     {
-        int index = Iterables.indexOf(SdkColumns.mappedFields(object.sdkFields()), field -> field.memberName().equals(memberName));
+        int index = Iterables.indexOf(SdkColumns.mappedFields(object), field -> field.memberName().equals(memberName));
         checkArgument(index >= 0, "No field named %s", memberName);
         return index;
     }

@@ -29,7 +29,7 @@ final class TestAwsTable
     @Test
     void testUnknownColumn()
     {
-        AwsTable table = AwsTable.builder(TABLE_NAME, SdkTableColumns.of(S3Object.builder().sdkFields()))
+        AwsTable table = AwsTable.builder(TABLE_NAME, SdkTableColumns.of(S3Object.builder()))
                 .rowSource((_, _) -> List.of())
                 .build();
 

@@ -248,7 +248,7 @@ final class TestAwsSplitManager
     // owners are known values, like the configured regions of regional tables, and VpcIds is a list member, which accepts a batch of values
     private static List<Map<String, List<String>>> knownValueSplits(Map<String, List<String>> filters)
     {
-        AwsTable table = AwsTable.builder(new SchemaTableName("test", "vpcs"), SdkTableColumns.of(Vpc.builder().sdkFields()))
+        AwsTable table = AwsTable.builder(new SchemaTableName("test", "vpcs"), SdkTableColumns.of(Vpc.builder()))
                 .rowSource(RequestRowSource.of("client", DescribeVpcsRequest::builder, (_, _) -> List.of()))
                 .filters(List.of(
                         partition("owner_id").knownValues(() -> List.of("owner-a", "owner-b")),
@@ -263,7 +263,7 @@ final class TestAwsSplitManager
         ColumnFilter bucketFilter = requestMember("bucket_name", "Bucket").defaultValues(bucketNames);
         AwsTable table = AwsTable.builder(
                         new SchemaTableName("test", "objects"),
-                        SdkTableColumns.builder(S3Object.builder().sdkFields())
+                        SdkTableColumns.builder(S3Object.builder())
                                 .prepend(new ColumnMetadata("bucket_name", VARCHAR), row -> row.requestValue("bucket_name"))
                                 .build())
                 .rowSource(RequestRowSource.of("client", ListObjectsV2Request::builder, (_, _) -> List.of()))

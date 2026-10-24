@@ -135,7 +135,7 @@ final class SdkRowEncoder
 
     private static void writeObject(RowType rowType, SdkPojo object, List<BlockBuilder> fieldBuilders)
     {
-        List<SdkField<?>> fields = mappedFields(object.sdkFields());
+        List<SdkField<?>> fields = mappedFields(object);
         for (int i = 0; i < fields.size(); i++) {
             writeValue(rowType.getFields().get(i).getType(), fieldBuilders.get(i), fields.get(i).getValueOrDefault(object));
         }

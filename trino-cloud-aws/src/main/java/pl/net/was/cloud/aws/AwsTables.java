@@ -157,13 +157,13 @@ public class AwsTables
         this.tables = Stream.of(
                         simpleRegionalTable(
                                 "availability_zones",
-                                AvailabilityZone.builder().sdkFields(),
+                                AvailabilityZone.builder(),
                                 DescribeAvailabilityZonesRequest::builder,
                                 (client, request) -> client.describeAvailabilityZones(request).availabilityZones(),
                                 ec2Filters("group-long-name", "group-name", "opt-in-status", "parent-zone-id", "parent-zone-name", "region-name", "state", "zone-id", "zone-name", "zone-type")),
                         regionalTable(
                                 "images",
-                                SdkTableColumns.builder(Image.builder().sdkFields())
+                                SdkTableColumns.builder(Image.builder())
                                         // populate row_id - to support DELETE
                                         .prepend(rowIdColumn(), row -> regionalRowId(row, ((Image) row.object()).imageId()))
                                         // populate instance_id - to support INSERT
@@ -206,13 +206,13 @@ public class AwsTables
                                 .build(),
                         simpleRegionalTable(
                                 "instance_types",
-                                InstanceTypeInfo.builder().sdkFields(),
+                                InstanceTypeInfo.builder(),
                                 DescribeInstanceTypesRequest::builder,
                                 (client, request) -> client.describeInstanceTypesPaginator(request).instanceTypes(),
                                 ec2Filters("auto-recovery-supported", "bare-metal", "burstable-performance-supported", "current-generation", "dedicated-hosts-supported", "free-tier-eligible", "hibernation-supported", "hypervisor", "instance-storage-supported", "instance-type", "nitro-enclaves-support", "nitro-tpm-support", "reboot-migration-support")),
                         regionalTable(
                                 "instances",
-                                SdkTableColumns.builder(Instance.builder().sdkFields())
+                                SdkTableColumns.builder(Instance.builder())
                                         .prepend(rowIdColumn(), row -> regionalRowId(row, ((Instance) row.object()).instanceId()))
                                         .insertAfter("state", new ColumnMetadata(STATE_NAME, VARCHAR), row -> stateName((Instance) row.object())),
                                 DescribeInstancesRequest::builder,
@@ -262,25 +262,25 @@ public class AwsTables
                                 .build(),
                         simpleRegionalTable(
                                 "key_pairs",
-                                KeyPairInfo.builder().sdkFields(),
+                                KeyPairInfo.builder(),
                                 DescribeKeyPairsRequest::builder,
                                 (client, request) -> client.describeKeyPairs(request).keyPairs(),
                                 ec2Filters(TAG_FILTERS, "key-name", "key-pair-id")),
                         simpleRegionalTable(
                                 "launch_templates",
-                                LaunchTemplate.builder().sdkFields(),
+                                LaunchTemplate.builder(),
                                 DescribeLaunchTemplatesRequest::builder,
                                 (client, request) -> client.describeLaunchTemplatesPaginator(request).launchTemplates(),
                                 ec2Filters(TAG_FILTERS, "launch-template-name")),
                         simpleRegionalTable(
                                 "nat_gateways",
-                                NatGateway.builder().sdkFields(),
+                                NatGateway.builder(),
                                 DescribeNatGatewaysRequest::builder,
                                 (client, request) -> client.describeNatGatewaysPaginator(request).natGateways(),
                                 ec2Filters(TAG_FILTERS, "nat-gateway-id", "state", "subnet-id", "vpc-id")),
                         simpleRegionalTable(
                                 "network_interfaces",
-                                NetworkInterface.builder().sdkFields(),
+                                NetworkInterface.builder(),
                                 DescribeNetworkInterfacesRequest::builder,
                                 (client, request) -> client.describeNetworkInterfacesPaginator(request).networkInterfaces(),
                                 ImmutableList.<ColumnFilter>builder()
@@ -289,36 +289,36 @@ public class AwsTables
                                         .build()),
                         simpleRegionalTable(
                                 "placement_groups",
-                                PlacementGroup.builder().sdkFields(),
+                                PlacementGroup.builder(),
                                 DescribePlacementGroupsRequest::builder,
                                 (client, request) -> client.describePlacementGroups(request).placementGroups(),
                                 ec2Filters(TAG_FILTERS, "group-arn", "group-name", "spread-level", "state", "strategy")),
                         simpleRegionalTable(
                                 "prefix_lists",
-                                PrefixList.builder().sdkFields(),
+                                PrefixList.builder(),
                                 DescribePrefixListsRequest::builder,
                                 (client, request) -> client.describePrefixListsPaginator(request).prefixLists(),
                                 ec2Filters("prefix-list-id", "prefix-list-name")),
                         simpleRegionalTable(
                                 "public_ipv4_pools",
-                                PublicIpv4Pool.builder().sdkFields(),
+                                PublicIpv4Pool.builder(),
                                 DescribePublicIpv4PoolsRequest::builder,
                                 (client, request) -> client.describePublicIpv4PoolsPaginator(request).publicIpv4Pools(),
                                 ec2Filters(TAG_FILTERS)),
                         // every region returns the same regions
-                        AwsTable.builder(new SchemaTableName("ec2", "regions"), SdkTableColumns.of(Region.builder().sdkFields()))
+                        AwsTable.builder(new SchemaTableName("ec2", "regions"), SdkTableColumns.of(Region.builder()))
                                 .rowSource(RequestRowSource.of(ec2, DescribeRegionsRequest::builder, (client, request) -> client.describeRegions(request).regions()))
                                 .filters(ec2Filters("endpoint", "opt-in-status", "region-name"))
                                 .build(),
                         simpleRegionalTable(
                                 "route_tables",
-                                RouteTable.builder().sdkFields(),
+                                RouteTable.builder(),
                                 DescribeRouteTablesRequest::builder,
                                 (client, request) -> client.describeRouteTablesPaginator(request).routeTables(),
                                 ec2Filters(TAG_FILTERS, "owner-id", "route-table-id", "vpc-id")),
                         regionalTable(
                                 "snapshots",
-                                SdkTableColumns.builder(Snapshot.builder().sdkFields()),
+                                SdkTableColumns.builder(Snapshot.builder()),
                                 DescribeSnapshotsRequest::builder,
                                 (client, request) -> client.describeSnapshotsPaginator(request).snapshots(),
                                 ImmutableList.<ColumnFilter>builder()
@@ -332,25 +332,25 @@ public class AwsTables
                                 .build(),
                         simpleRegionalTable(
                                 "security_groups",
-                                SecurityGroup.builder().sdkFields(),
+                                SecurityGroup.builder(),
                                 DescribeSecurityGroupsRequest::builder,
                                 (client, request) -> client.describeSecurityGroupsPaginator(request).securityGroups(),
                                 ec2Filters(TAG_FILTERS, "description", "group-id", "group-name", "owner-id", "vpc-id")),
                         simpleRegionalTable(
                                 "subnets",
-                                Subnet.builder().sdkFields(),
+                                Subnet.builder(),
                                 DescribeSubnetsRequest::builder,
                                 (client, request) -> client.describeSubnetsPaginator(request).subnets(),
                                 ec2Filters(TAG_FILTERS, "availability-zone", "availability-zone-id", "available-ip-address-count", "cidr-block", "customer-owned-ipv4-pool", "default-for-az", "enable-dns64", "enable-lni-at-device-index", "ipv6-native", "map-customer-owned-ip-on-launch", "map-public-ip-on-launch", "outpost-arn", "owner-id", "state", "subnet-arn", "subnet-id", "vpc-id")),
                         simpleRegionalTable(
                                 "tags",
-                                TagDescription.builder().sdkFields(),
+                                TagDescription.builder(),
                                 DescribeTagsRequest::builder,
                                 (client, request) -> client.describeTagsPaginator(request).tags(),
                                 ec2Filters("key", "resource-id", "resource-type", "value")),
                         simpleRegionalTable(
                                 "volumes",
-                                Volume.builder().sdkFields(),
+                                Volume.builder(),
                                 DescribeVolumesRequest::builder,
                                 (client, request) -> client.describeVolumesPaginator(request).volumes(),
                                 ImmutableList.<ColumnFilter>builder()
@@ -359,35 +359,35 @@ public class AwsTables
                                         .build()),
                         simpleRegionalTable(
                                 "vpc_endpoints",
-                                VpcEndpoint.builder().sdkFields(),
+                                VpcEndpoint.builder(),
                                 DescribeVpcEndpointsRequest::builder,
                                 (client, request) -> client.describeVpcEndpointsPaginator(request).vpcEndpoints(),
                                 ec2Filters(TAG_FILTERS, "ip-address-type", "service-name", "service-region", "vpc-endpoint-id", "vpc-endpoint-type", "vpc-id")),
                         simpleRegionalTable(
                                 "vpc_peering_connections",
-                                VpcPeeringConnection.builder().sdkFields(),
+                                VpcPeeringConnection.builder(),
                                 DescribeVpcPeeringConnectionsRequest::builder,
                                 (client, request) -> client.describeVpcPeeringConnectionsPaginator(request).vpcPeeringConnections(),
                                 ec2Filters(TAG_FILTERS, "vpc-peering-connection-id")),
                         simpleRegionalTable(
                                 "vpcs",
-                                Vpc.builder().sdkFields(),
+                                Vpc.builder(),
                                 DescribeVpcsRequest::builder,
                                 (client, request) -> client.describeVpcsPaginator(request).vpcs(),
                                 ec2Filters(TAG_FILTERS, "dhcp-options-id", "is-default", "owner-id", "state", "vpc-id")),
                         simpleRegionalTable(
                                 "vpn_connections",
-                                VpnConnection.builder().sdkFields(),
+                                VpnConnection.builder(),
                                 DescribeVpnConnectionsRequest::builder,
                                 (client, request) -> client.describeVpnConnections(request).vpnConnections(),
                                 ec2Filters(TAG_FILTERS, "customer-gateway-id", "state", "transit-gateway-id", "type", "vpn-connection-id", "vpn-gateway-id")),
                         simpleRegionalTable(
                                 "vpn_gateways",
-                                VpnGateway.builder().sdkFields(),
+                                VpnGateway.builder(),
                                 DescribeVpnGatewaysRequest::builder,
                                 (client, request) -> client.describeVpnGateways(request).vpnGateways(),
                                 ec2Filters(TAG_FILTERS, "amazon-side-asn", "availability-zone", "state", "type", "vpn-gateway-id")),
-                        AwsTable.builder(new SchemaTableName("s3", "buckets"), SdkTableColumns.of(Bucket.builder().sdkFields()))
+                        AwsTable.builder(new SchemaTableName("s3", "buckets"), SdkTableColumns.of(Bucket.builder()))
                                 .rowSource(RequestRowSource.of(s3, ListBucketsRequest::builder, (client, request) -> client.listBucketsPaginator(request).buckets()))
                                 .filters(ImmutableList.of(
                                         keyPrefix("name", "Prefix"),
@@ -395,9 +395,9 @@ public class AwsTables
                                         requestMember("bucket_region", "BucketRegion").unenforced()))
                                 .inserter(new Inserter(CreateBucketRequest::builder, request -> createBucket(s3, (CreateBucketRequest) request), bucketSetters()))
                                 .build(),
-                        bucketTable(s3, "objects", S3Object.builder().sdkFields(), ListObjectsV2Request::builder, (client, request) -> client.listObjectsV2Paginator(request).contents()),
-                        bucketTable(s3, "object_versions", ObjectVersion.builder().sdkFields(), ListObjectVersionsRequest::builder, (client, request) -> client.listObjectVersionsPaginator(request).versions()),
-                        bucketTable(s3, "deleted_objects", DeleteMarkerEntry.builder().sdkFields(), ListObjectVersionsRequest::builder, (client, request) -> client.listObjectVersionsPaginator(request).deleteMarkers()))
+                        bucketTable(s3, "objects", S3Object.builder(), ListObjectsV2Request::builder, (client, request) -> client.listObjectsV2Paginator(request).contents()),
+                        bucketTable(s3, "object_versions", ObjectVersion.builder(), ListObjectVersionsRequest::builder, (client, request) -> client.listObjectVersionsPaginator(request).versions()),
+                        bucketTable(s3, "deleted_objects", DeleteMarkerEntry.builder(), ListObjectVersionsRequest::builder, (client, request) -> client.listObjectVersionsPaginator(request).deleteMarkers()))
                 .collect(toImmutableMap(AwsTable::name, identity()));
     }
 
@@ -422,12 +422,12 @@ public class AwsTables
 
     private <R extends Ec2Request> AwsTable simpleRegionalTable(
             String table,
-            List<SdkField<?>> sdkFields,
+            SdkPojo model,
             Supplier<? extends SdkBuilder<?, R>> request,
             BiFunction<Ec2Client, R, Iterable<? extends SdkPojo>> executor,
             List<ColumnFilter> filters)
     {
-        return regionalTable(table, SdkTableColumns.builder(sdkFields), request, executor, filters)
+        return regionalTable(table, SdkTableColumns.builder(model), request, executor, filters)
                 .build();
     }
 
@@ -517,13 +517,13 @@ public class AwsTables
     private static <R extends S3Request> AwsTable bucketTable(
             S3Client s3,
             String table,
-            List<SdkField<?>> sdkFields,
+            SdkPojo model,
             Supplier<? extends SdkBuilder<?, R>> request,
             BiFunction<S3Client, R, Iterable<? extends SdkPojo>> executor)
     {
         return AwsTable.builder(
                         new SchemaTableName("s3", table),
-                        SdkTableColumns.builder(sdkFields)
+                        SdkTableColumns.builder(model)
                                 .prepend(new ColumnMetadata(BUCKET_NAME_COLUMN, VARCHAR), row -> row.requestValue(BUCKET_NAME_COLUMN))
                                 .build())
                 .rowSource(RequestRowSource.of(s3, request, executor))

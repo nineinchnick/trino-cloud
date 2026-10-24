@@ -239,7 +239,7 @@ final class TestAwsPageSource
     {
         return AwsTable.builder(
                 TABLE_NAME,
-                SdkTableColumns.builder(S3Object.builder().sdkFields())
+                SdkTableColumns.builder(S3Object.builder())
                         .prepend(new ColumnMetadata("bucket_name", VARCHAR), row -> row.requestValue("bucket_name"))
                         .build());
     }

@@ -40,7 +40,7 @@ final class TestSdkColumns
     @Test
     void testScalarTypes()
     {
-        List<ColumnMetadata> columns = SdkColumns.columns(Instance.builder().sdkFields());
+        List<ColumnMetadata> columns = SdkColumns.columns(Instance.builder());
 
         assertThat(columnType(columns, "instance_id")).isEqualTo(VARCHAR);
         assertThat(columnType(columns, "ami_launch_index")).isEqualTo(INTEGER);
@@ -50,7 +50,7 @@ final class TestSdkColumns
     @Test
     void testNestedObjectsAreRows()
     {
-        List<ColumnMetadata> columns = SdkColumns.columns(Instance.builder().sdkFields());
+        List<ColumnMetadata> columns = SdkColumns.columns(Instance.builder());
 
         assertThat(columnType(columns, "state")).isEqualTo(RowType.from(List.of(
                 RowType.field("code", INTEGER),
@@ -67,26 +67,26 @@ final class TestSdkColumns
     @Test
     void testTagsAreMaps()
     {
-        assertThat(columnType(SdkColumns.columns(Instance.builder().sdkFields()), "tags"))
+        assertThat(columnType(SdkColumns.columns(Instance.builder()), "tags"))
                 .isEqualTo(new MapType(VARCHAR, VARCHAR, TYPE_OPERATORS));
     }
 
     @Test
     void testTypedMapValues()
     {
-        assertThat(columnType(SdkColumns.columns(GetObjectResponse.builder().sdkFields()), "metadata"))
+        assertThat(columnType(SdkColumns.columns(GetObjectResponse.builder()), "metadata"))
                 .isEqualTo(new MapType(VARCHAR, VARCHAR, TYPE_OPERATORS));
     }
 
     @Test
     void testColumnNames()
     {
-        List<ColumnMetadata> instanceTypeColumns = SdkColumns.columns(InstanceTypeInfo.builder().sdkFields());
+        List<ColumnMetadata> instanceTypeColumns = SdkColumns.columns(InstanceTypeInfo.builder());
         assertThat(rowFieldNames(instanceTypeColumns, "vcpu_info")).contains("default_vcpus");
         assertThat(rowFieldNames(instanceTypeColumns, "memory_info")).contains("size_in_mib");
         assertThat(rowFieldNames(instanceTypeColumns, "instance_storage_info")).contains("total_size_in_gb");
 
-        List<ColumnMetadata> objectColumns = SdkColumns.columns(S3Object.builder().sdkFields());
+        List<ColumnMetadata> objectColumns = SdkColumns.columns(S3Object.builder());
         assertThat(columnType(objectColumns, "etag")).isEqualTo(VARCHAR);
         assertThat(columnType(objectColumns, "owner")).isEqualTo(RowType.from(List.of(
                 RowType.field("display_name", VARCHAR),
@@ -96,7 +96,7 @@ final class TestSdkColumns
     @Test
     void testDuplicateColumnNames()
     {
-        assertThatThrownBy(() -> SdkTableColumns.builder(Instance.builder().sdkFields()).prepend(new ColumnMetadata("instance_id", VARCHAR), _ -> null).build())
+        assertThatThrownBy(() -> SdkTableColumns.builder(Instance.builder()).prepend(new ColumnMetadata("instance_id", VARCHAR), _ -> null).build())
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageStartingWith("More than one field is mapped to instance_id in [instance_id, ");
     }

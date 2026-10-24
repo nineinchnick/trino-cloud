@@ -27,6 +27,7 @@ import pl.net.was.cloud.aws.AwsTable.Inserter;
 import software.amazon.awssdk.services.ec2.model.Instance;
 import software.amazon.awssdk.services.ec2.model.Placement;
 import software.amazon.awssdk.services.ec2.model.RunInstancesRequest;
+import software.amazon.awssdk.services.ec2.model.Tag;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -120,7 +121,7 @@ final class TestAwsPageSink
     @Test
     void testConvertsColumnValues()
     {
-        Type placementType = SdkColumns.columns(Instance.builder().sdkFields()).stream()
+        Type placementType = SdkColumns.columns(Instance.builder()).stream()
                 .filter(column -> column.getName().equals("placement"))
                 .map(ColumnMetadata::getType)
                 .findFirst()
@@ -159,7 +160,7 @@ final class TestAwsPageSink
 
     private AwsTable table()
     {
-        return AwsTable.builder(TABLE_NAME, SdkTableColumns.builder(List.of()).prepend(new ColumnMetadata("image_id", VARCHAR), _ -> null).build())
+        return AwsTable.builder(TABLE_NAME, SdkTableColumns.builder(Tag.builder()).prepend(new ColumnMetadata("image_id", VARCHAR), _ -> null).build())
                 .rowSource((_, _) -> List.of())
                 .inserter(new Inserter(RunInstancesRequest::builder, request -> {
                     RunInstancesRequest runInstances = (RunInstancesRequest) request;
