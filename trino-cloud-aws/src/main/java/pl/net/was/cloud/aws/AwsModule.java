@@ -21,7 +21,6 @@ import com.google.inject.Provider;
 import com.google.inject.Scopes;
 import io.trino.spi.NodeManager;
 import io.trino.spi.type.TypeManager;
-import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.s3.S3Client;
 
@@ -54,6 +53,7 @@ public class AwsModule
         binder.bind(AwsPageSourceProvider.class).in(Scopes.SINGLETON);
         binder.bind(AwsPageSinkProvider.class).in(Scopes.SINGLETON);
         configBinder(binder).bindConfig(AwsConfig.class);
+        binder.bind(AwsClientConfigurer.class).in(Scopes.SINGLETON);
 
         binder.bind(Ec2Client.class).toProvider(Ec2ClientProvider.class);
         binder.bind(S3Client.class).toProvider(S3ClientProvider.class);
@@ -62,20 +62,18 @@ public class AwsModule
     private static class Ec2ClientProvider
             implements Provider<Ec2Client>
     {
-        private final String region;
+        private final AwsClientConfigurer clientConfigurer;
 
         @Inject
-        public Ec2ClientProvider(AwsConfig config)
+        public Ec2ClientProvider(AwsClientConfigurer clientConfigurer)
         {
-            requireNonNull(config, "config is null");
-            this.region = config.getRegion();
+            this.clientConfigurer = requireNonNull(clientConfigurer, "clientConfigurer is null");
         }
 
         @Override
         public Ec2Client get()
         {
-            return Ec2Client.builder()
-                    .region(Region.of(region))
+            return clientConfigurer.configure(Ec2Client.builder())
                     .build();
         }
     }
@@ -83,20 +81,18 @@ public class AwsModule
     private static class S3ClientProvider
             implements Provider<S3Client>
     {
-        private final String region;
+        private final AwsClientConfigurer clientConfigurer;
 
         @Inject
-        public S3ClientProvider(AwsConfig config)
+        public S3ClientProvider(AwsClientConfigurer clientConfigurer)
         {
-            requireNonNull(config, "config is null");
-            this.region = config.getRegion();
+            this.clientConfigurer = requireNonNull(clientConfigurer, "clientConfigurer is null");
         }
 
         @Override
         public S3Client get()
         {
-            return S3Client.builder()
-                    .region(Region.of(region))
+            return clientConfigurer.configure(S3Client.builder())
                     .build();
         }
     }
