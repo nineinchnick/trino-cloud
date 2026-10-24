@@ -82,12 +82,12 @@ import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
-import static io.trino.spi.StandardErrorCode.INVALID_COLUMN_REFERENCE;
-import static io.trino.spi.StandardErrorCode.INVALID_ROW_FILTER;
+import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.StandardErrorCode.TABLE_NOT_FOUND;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.util.Objects.requireNonNull;
 import static java.util.function.Function.identity;
+import static pl.net.was.cloud.aws.AwsErrorCode.AWS_MISSING_PREDICATE;
 import static pl.net.was.cloud.aws.AwsTable.ROW_ID;
 import static pl.net.was.cloud.aws.PageValues.getValue;
 import static pl.net.was.cloud.aws.SdkColumns.columns;
@@ -214,7 +214,7 @@ public class AwsTables
             request.owners(owner);
         }
         if (imageId == null && name == null && owner == null && handle.limit().isEmpty()) {
-            throw new TrinoException(INVALID_ROW_FILTER, "Missing a limit or constraint for image_id, name, or owner_id");
+            throw new TrinoException(AWS_MISSING_PREDICATE, "Missing a limit or constraint for image_id, name, or owner_id");
         }
         return encodeRows(
                 ec2.describeImages(request.build()).images(),
@@ -247,7 +247,7 @@ public class AwsTables
         switch (desiredState) {
             case "running" -> ec2.startInstances(StartInstancesRequest.builder().instanceIds(rowId).build());
             case "stopped" -> ec2.stopInstances(StopInstancesRequest.builder().instanceIds(rowId).build());
-            default -> throw new TrinoException(INVALID_COLUMN_REFERENCE, "Updates of ec2.instances.state column to %s are not supported".formatted(desiredState));
+            default -> throw new TrinoException(NOT_SUPPORTED, "Updates of ec2.instances.state column to %s are not supported".formatted(desiredState));
         }
         String desiredInstanceType = ((String) columnValues.apply("instance_type")).toLowerCase(Locale.US);
         ec2.modifyInstanceAttribute(
@@ -261,7 +261,7 @@ public class AwsTables
     private static void requirePredicate(Object value, String name)
     {
         if (value == null) {
-            throw new TrinoException(INVALID_ROW_FILTER, "Missing required constraint for " + name);
+            throw new TrinoException(AWS_MISSING_PREDICATE, "Missing required constraint for " + name);
         }
     }
 }

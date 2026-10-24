@@ -35,7 +35,6 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
-import static io.trino.spi.StandardErrorCode.INVALID_COLUMN_REFERENCE;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.util.Objects.requireNonNull;
@@ -102,7 +101,7 @@ public class AwsPageSink
                 field = fields.get("tag_specifications");
             }
             if (field == null) {
-                throw new TrinoException(INVALID_COLUMN_REFERENCE, "Inserts to %s with %s are not supported".formatted(tableName, columnName));
+                throw new TrinoException(NOT_SUPPORTED, "Inserts to %s with %s are not supported".formatted(tableName, columnName));
             }
 
             VARCHAR.getSlice(block, position).toStringUtf8();
