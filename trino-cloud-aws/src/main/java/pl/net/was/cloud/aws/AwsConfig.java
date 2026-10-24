@@ -19,7 +19,9 @@ import io.airlift.configuration.ConfigDescription;
 import io.airlift.configuration.ConfigSecuritySensitive;
 import io.airlift.configuration.LegacyConfig;
 import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 
 import java.net.URI;
 import java.util.Optional;
@@ -34,6 +36,9 @@ public class AwsConfig
     private String iamRole;
     private String externalId;
     private String roleSessionName = "trino-cloud";
+    private int maxConnections = 50;
+    private RetryMode retryMode = RetryMode.ADAPTIVE;
+    private int maxErrorRetries = 10;
 
     public Optional<String> getRegion()
     {
@@ -142,6 +147,48 @@ public class AwsConfig
         return this;
     }
 
+    @Min(1)
+    public int getMaxConnections()
+    {
+        return maxConnections;
+    }
+
+    @Config("aws.max-connections")
+    @ConfigDescription("Maximum number of concurrent connections to each AWS service")
+    public AwsConfig setMaxConnections(int maxConnections)
+    {
+        this.maxConnections = maxConnections;
+        return this;
+    }
+
+    @NotNull
+    public RetryMode getRetryMode()
+    {
+        return retryMode;
+    }
+
+    @Config("aws.retry-mode")
+    @ConfigDescription("AWS SDK retry mode used when requests fail or are throttled")
+    public AwsConfig setRetryMode(RetryMode retryMode)
+    {
+        this.retryMode = retryMode;
+        return this;
+    }
+
+    @Min(0)
+    public int getMaxErrorRetries()
+    {
+        return maxErrorRetries;
+    }
+
+    @Config("aws.max-error-retries")
+    @ConfigDescription("Maximum number of retries of a failed AWS request")
+    public AwsConfig setMaxErrorRetries(int maxErrorRetries)
+    {
+        this.maxErrorRetries = maxErrorRetries;
+        return this;
+    }
+
     @AssertTrue(message = "aws.access-key and aws.secret-key must be set together")
     public boolean isStaticCredentialsComplete()
     {
@@ -158,5 +205,12 @@ public class AwsConfig
     public boolean isExternalIdUsedWithIamRole()
     {
         return externalId == null || iamRole != null;
+    }
+
+    public enum RetryMode
+    {
+        STANDARD,
+        LEGACY,
+        ADAPTIVE,
     }
 }

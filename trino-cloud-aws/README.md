@@ -109,6 +109,9 @@ The following configuration options are recognized by this connector:
 | `aws.iam-role`          | ARN of an IAM role to assume using STS, with the credentials from the other properties.                                                         |                                       |
 | `aws.external-id`       | External ID required by the trust policy of the role set in `aws.iam-role`. Requires `aws.iam-role`.                                            |                                       |
 | `aws.role-session-name` | Session name used when assuming the role set in `aws.iam-role`.                                                                                 | `trino-cloud`                         |
+| `aws.max-connections`   | Maximum number of concurrent connections to each AWS service.                                                                                   | `50`                                  |
+| `aws.retry-mode`        | AWS SDK retry mode used when requests fail or are throttled: `STANDARD`, `LEGACY` or `ADAPTIVE`.                                                | `ADAPTIVE`                            |
+| `aws.max-error-retries` | Maximum number of retries of a failed AWS request.                                                                                              | `10`                                  |
 
 If `aws.region` is not set, the connector uses the
 [AWS SDK default region provider chain](https://docs.aws.amazon.com/sdk-for-java/latest/developer-guide/region-selection.html),
