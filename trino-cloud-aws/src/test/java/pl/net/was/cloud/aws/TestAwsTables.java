@@ -17,6 +17,9 @@ import io.opentelemetry.api.OpenTelemetry;
 import io.trino.spi.connector.ColumnMetadata;
 import org.junit.jupiter.api.Test;
 import pl.net.was.cloud.aws.AwsTables.RegionalRowId;
+import software.amazon.awssdk.services.ec2.model.DescribeNatGatewaysRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeVpcsRequest;
+import software.amazon.awssdk.services.ec2.model.Filter;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 
@@ -69,6 +72,17 @@ final class TestAwsTables
                 assertThat(table.requireFilterApplier().getKnownValues()).as(table.name().toString()).containsEntry("region", List.of("us-east-1"));
             }
         }
+    }
+
+    @Test
+    void testRequestFilters()
+    {
+        List<Filter> filters = List.of(Filter.builder().name("vpc-id").values("vpc-1").build());
+
+        assertThat(AwsTables.withFilters(DescribeVpcsRequest.builder(), filters).filters()).isEqualTo(filters);
+        // the list of filters of DescribeNatGateways is named Filter
+        assertThat(AwsTables.withFilters(DescribeNatGatewaysRequest.builder(), filters).filter()).isEqualTo(filters);
+        assertThat(AwsTables.withFilters(DescribeVpcsRequest.builder(), List.of()).hasFilters()).isFalse();
     }
 
     @Test

@@ -390,6 +390,30 @@ final class TestAwsConnectorEmulator
                 "VALUES '10.0.0.0/16'");
     }
 
+    // Floci has a default VPC with default subnets, so the number of rows read shows that AWS returned only the matching rows
+    @Test
+    void testEc2FiltersPushdown()
+    {
+        assertThat(query("SELECT vpc_id FROM aws.ec2.vpcs WHERE vpc_id = '%s'".formatted(testData.vpcId())))
+                .isNotFullyPushedDown(FilterNode.class)
+                .matches("VALUES VARCHAR '%s'".formatted(testData.vpcId()));
+        assertInputRows("SELECT vpc_id FROM aws.ec2.vpcs WHERE vpc_id = '%s'".formatted(testData.vpcId()), 1);
+        assertInputRows("SELECT vpc_id FROM aws.ec2.vpcs WHERE is_default", 1);
+        assertInputRows("SELECT subnet_id FROM aws.ec2.subnets WHERE vpc_id = '%s'".formatted(testData.vpcId()), 1);
+        assertInputRows("SELECT subnet_id FROM aws.ec2.subnets WHERE subnet_id IN ('%s', 'subnet-0123456789abcdef0')".formatted(testData.subnetId()), 1);
+        assertInputRows("SELECT instance_id FROM aws.ec2.instances WHERE vpc_id = '%s'".formatted(testData.vpcId()), 2);
+        assertInputRows("SELECT instance_id FROM aws.ec2.instances WHERE subnet_id = 'subnet-0123456789abcdef0'", 0);
+    }
+
+    @Test
+    void testInstanceStateNamePushdown()
+    {
+        assertThat(query("SELECT count(*) FROM aws.ec2.instances WHERE state_name = 'running' AND subnet_id = '%s'".formatted(testData.subnetId())))
+                .matches("VALUES BIGINT '2'");
+        assertInputRows("SELECT instance_id FROM aws.ec2.instances WHERE state_name = 'running'", 2);
+        assertInputRows("SELECT instance_id FROM aws.ec2.instances WHERE state_name IN ('stopped', 'terminated')", 0);
+    }
+
     @Test
     void testSubnets()
     {
@@ -550,5 +574,10 @@ final class TestAwsConnectorEmulator
     private void assertSplitCount(String sql, int expectedSplits)
     {
         assertQueryStats(getSession(), sql, stats -> assertThat(TableScanSplits.count(stats)).isEqualTo(expectedSplits), _ -> {});
+    }
+
+    private void assertInputRows(String sql, long expectedRows)
+    {
+        assertQueryStats(getSession(), sql, stats -> assertThat(stats.getPhysicalInputPositions()).isEqualTo(expectedRows), _ -> {});
     }
 }
