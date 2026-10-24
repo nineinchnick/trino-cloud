@@ -18,6 +18,8 @@ import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 
+import java.net.URI;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -30,6 +32,18 @@ final class TestAwsConfigValidation
 
         try (Ec2Client client = configurer.configure(Ec2Client.builder()).build()) {
             assertThat(client.serviceClientConfiguration().region()).isEqualTo(Region.EU_CENTRAL_1);
+        }
+    }
+
+    @Test
+    void testEndpointOverride()
+    {
+        AwsClientConfigurer configurer = new AwsClientConfigurer(new AwsConfig()
+                .setRegion("us-east-1")
+                .setEndpoint(URI.create("http://localhost:4566")));
+
+        try (Ec2Client client = configurer.configure(Ec2Client.builder()).build()) {
+            assertThat(client.serviceClientConfiguration().endpointOverride()).contains(URI.create("http://localhost:4566"));
         }
     }
 

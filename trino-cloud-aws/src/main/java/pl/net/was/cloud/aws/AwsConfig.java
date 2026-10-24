@@ -18,11 +18,13 @@ import io.airlift.configuration.Config;
 import io.airlift.configuration.ConfigDescription;
 import io.airlift.configuration.LegacyConfig;
 
+import java.net.URI;
 import java.util.Optional;
 
 public class AwsConfig
 {
     private String region;
+    private URI endpoint;
 
     public Optional<String> getRegion()
     {
@@ -35,6 +37,19 @@ public class AwsConfig
     public AwsConfig setRegion(String region)
     {
         this.region = region;
+        return this;
+    }
+
+    public Optional<URI> getEndpoint()
+    {
+        return Optional.ofNullable(endpoint);
+    }
+
+    @Config("aws.endpoint")
+    @ConfigDescription("Endpoint URL overriding the AWS service endpoints, for example to use an emulator; enables S3 path-style access")
+    public AwsConfig setEndpoint(URI endpoint)
+    {
+        this.endpoint = endpoint;
         return this;
     }
 }

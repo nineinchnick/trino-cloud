@@ -17,6 +17,7 @@ package pl.net.was.cloud.aws;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 
+import java.net.URI;
 import java.util.Map;
 
 import static io.airlift.configuration.testing.ConfigAssertions.assertFullMapping;
@@ -29,7 +30,8 @@ final class TestAwsConfig
     void testDefaults()
     {
         assertRecordedDefaults(recordDefaults(AwsConfig.class)
-                .setRegion(null));
+                .setRegion(null)
+                .setEndpoint(null));
     }
 
     @Test
@@ -37,10 +39,12 @@ final class TestAwsConfig
     {
         Map<String, String> properties = ImmutableMap.<String, String>builder()
                 .put("aws.region", "eu-central-1")
+                .put("aws.endpoint", "http://localhost:4566")
                 .buildOrThrow();
 
         AwsConfig expected = new AwsConfig()
-                .setRegion("eu-central-1");
+                .setRegion("eu-central-1")
+                .setEndpoint(URI.create("http://localhost:4566"));
 
         assertFullMapping(properties, expected);
     }

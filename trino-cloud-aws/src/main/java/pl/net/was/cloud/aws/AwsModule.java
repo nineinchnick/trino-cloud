@@ -82,11 +82,14 @@ public class AwsModule
             implements Provider<S3Client>
     {
         private final AwsClientConfigurer clientConfigurer;
+        private final boolean pathStyleAccess;
 
         @Inject
-        public S3ClientProvider(AwsClientConfigurer clientConfigurer)
+        public S3ClientProvider(AwsClientConfigurer clientConfigurer, AwsConfig config)
         {
             this.clientConfigurer = requireNonNull(clientConfigurer, "clientConfigurer is null");
+            // emulators serve all buckets from a single host, so they can't resolve virtual-hosted bucket names
+            this.pathStyleAccess = config.getEndpoint().isPresent();
         }
 
         @Override
@@ -94,6 +97,7 @@ public class AwsModule
         {
             return clientConfigurer.configure(S3Client.builder())
                     .crossRegionAccessEnabled(true)
+                    .forcePathStyle(pathStyleAccess)
                     .build();
         }
     }
