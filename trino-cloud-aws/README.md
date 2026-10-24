@@ -120,6 +120,7 @@ The following configuration options are recognized by this connector:
 | `aws.retry-mode`        | AWS SDK retry mode used when requests fail or are throttled: `STANDARD`, `LEGACY` or `ADAPTIVE`.                                                | `ADAPTIVE`                            |
 | `aws.max-error-retries` | Maximum number of retries of a failed AWS request.                                                                                              | `10`                                  |
 | `aws.read-only`         | Reject `INSERT`, `UPDATE` and `DELETE`, which create, modify and remove AWS resources. See [Writes](#writes).                                   | `true`                                |
+| `aws.max-inserted-rows` | Maximum number of rows a single `INSERT` can insert, to limit the number of resources it creates. The limit applies to each writer task.        | `10`                                  |
 
 If `aws.region` is not set, the connector uses the
 [AWS SDK default region provider chain](https://docs.aws.amazon.com/sdk-for-java/latest/developer-guide/region-selection.html),

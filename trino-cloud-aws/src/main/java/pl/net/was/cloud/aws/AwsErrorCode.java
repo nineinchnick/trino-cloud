@@ -25,7 +25,8 @@ public enum AwsErrorCode
 {
     AWS_API_ERROR(0, EXTERNAL),
     AWS_THROTTLED(1, EXTERNAL),
-    AWS_MISSING_PREDICATE(2, USER_ERROR);
+    AWS_MISSING_PREDICATE(2, USER_ERROR),
+    AWS_TOO_MANY_INSERTED_ROWS(3, USER_ERROR);
 
     private final ErrorCode errorCode;
 

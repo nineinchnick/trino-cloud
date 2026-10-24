@@ -40,6 +40,7 @@ public class AwsConfig
     private RetryMode retryMode = RetryMode.ADAPTIVE;
     private int maxErrorRetries = 10;
     private boolean readOnly = true;
+    private int maxInsertedRows = 10;
 
     public Optional<String> getRegion()
     {
@@ -200,6 +201,20 @@ public class AwsConfig
     public AwsConfig setReadOnly(boolean readOnly)
     {
         this.readOnly = readOnly;
+        return this;
+    }
+
+    @Min(1)
+    public int getMaxInsertedRows()
+    {
+        return maxInsertedRows;
+    }
+
+    @Config("aws.max-inserted-rows")
+    @ConfigDescription("Maximum number of rows a single INSERT statement can insert, to limit the number of resources it creates")
+    public AwsConfig setMaxInsertedRows(int maxInsertedRows)
+    {
+        this.maxInsertedRows = maxInsertedRows;
         return this;
     }
 
