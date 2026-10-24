@@ -42,7 +42,7 @@ Create a `aws.properties` file in your Trino catalog directory:
 
 ```
 connector.name=aws
-region=${ENV:AWS_REGION}
+aws.region=${ENV:AWS_REGION}
 ```
 
 The connector reads credentials using the AWS SDK default credentials provider chain.

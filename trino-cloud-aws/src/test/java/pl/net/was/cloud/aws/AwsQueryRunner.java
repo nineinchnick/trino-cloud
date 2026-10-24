@@ -46,12 +46,8 @@ public class AwsQueryRunner
                 .build();
         queryRunner.installPlugin(new AwsPlugin());
 
-        String region = requireNonNullElse(System.getenv("AWS_REGION"), "");
-        queryRunner.createCatalog(
-                "aws",
-                "aws",
-                ImmutableMap.of(
-                        "region", region));
+        // without aws.region, the AWS SDK default region provider chain reads the AWS_REGION environment variable
+        queryRunner.createCatalog("aws", "aws", ImmutableMap.of());
 
         return queryRunner;
     }

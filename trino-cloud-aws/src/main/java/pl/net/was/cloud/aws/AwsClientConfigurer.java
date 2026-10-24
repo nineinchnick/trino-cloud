@@ -16,7 +16,12 @@ package pl.net.was.cloud.aws;
 
 import com.google.inject.Inject;
 import software.amazon.awssdk.awscore.client.builder.AwsClientBuilder;
+import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.regions.providers.DefaultAwsRegionProviderChain;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static java.util.stream.Collectors.joining;
 
 public class AwsClientConfigurer
 {
@@ -25,11 +30,38 @@ public class AwsClientConfigurer
     @Inject
     public AwsClientConfigurer(AwsConfig config)
     {
-        this.region = Region.of(config.getRegion());
+        this.region = resolveRegion(config);
     }
 
     public <B extends AwsClientBuilder<B, ?>> B configure(B builder)
     {
         return builder.region(region);
+    }
+
+    private static Region resolveRegion(AwsConfig config)
+    {
+        String regionName = config.getRegion().orElseGet(AwsClientConfigurer::defaultRegionName);
+        Region region = Region.of(regionName);
+        checkArgument(Region.regions().contains(region),
+                "Unknown AWS region '%s' in aws.region, expected one of: %s",
+                regionName,
+                Region.regions().stream()
+                        .map(Region::id)
+                        .sorted()
+                        .collect(joining(", ")));
+        return region;
+    }
+
+    private static String defaultRegionName()
+    {
+        try {
+            return DefaultAwsRegionProviderChain.builder()
+                    .build()
+                    .getRegion()
+                    .id();
+        }
+        catch (SdkClientException e) {
+            throw new IllegalStateException("aws.region is not set and the AWS SDK default region provider chain could not resolve a region", e);
+        }
     }
 }
