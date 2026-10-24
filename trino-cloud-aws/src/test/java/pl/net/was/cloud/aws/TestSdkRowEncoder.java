@@ -15,6 +15,9 @@
 package pl.net.was.cloud.aws;
 
 import com.google.common.collect.Iterables;
+import io.trino.spi.block.MapBlockBuilder;
+import io.trino.spi.type.MapType;
+import io.trino.spi.type.TypeOperators;
 import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.core.SdkPojo;
 import software.amazon.awssdk.services.ec2.model.Instance;
@@ -22,14 +25,18 @@ import software.amazon.awssdk.services.ec2.model.NatGateway;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static io.airlift.slice.Slices.utf8Slice;
 import static io.trino.spi.type.Timestamps.MICROSECONDS_PER_SECOND;
+import static io.trino.spi.type.VarcharType.VARCHAR;
 import static org.assertj.core.api.Assertions.assertThat;
 
 final class TestSdkRowEncoder
 {
+    private static final MapType MAP_TYPE = new MapType(VARCHAR, VARCHAR, new TypeOperators());
+
     @Test
     void testUnsetStringIsNull()
     {
@@ -54,10 +61,30 @@ final class TestSdkRowEncoder
         assertThat(encodedValue(natGateway, "DeleteTime")).isNull();
     }
 
+    @Test
+    void testUnsetNestedObjectIsNull()
+    {
+        Instance instance = Instance.builder()
+                .placement(placement -> placement.availabilityZone("us-east-1a"))
+                .build();
+
+        assertThat(encodedValue(instance, "IamInstanceProfile")).isNull();
+        assertThat(decodeMap(encodedValue(instance, "Placement")))
+                .containsEntry("AvailabilityZone", "us-east-1a")
+                .containsEntry("HostId", null);
+    }
+
     private static Object encodedValue(SdkPojo object, String memberName)
     {
         int index = Iterables.indexOf(object.sdkFields(), field -> field.memberName().equals(memberName));
         checkArgument(index >= 0, "No field named %s", memberName);
         return SdkRowEncoder.encodeRow(object, List.of()).get(index);
+    }
+
+    private static Map<Object, Object> decodeMap(Object encodedValue)
+    {
+        MapBlockBuilder blockBuilder = MAP_TYPE.createBlockBuilder(null, 1);
+        MAP_TYPE.writeObject(blockBuilder, encodedValue);
+        return (Map<Object, Object>) MAP_TYPE.getObjectValue(blockBuilder.build(), 0);
     }
 }

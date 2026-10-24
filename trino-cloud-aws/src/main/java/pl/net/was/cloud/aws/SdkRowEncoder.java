@@ -27,7 +27,6 @@ import software.amazon.awssdk.core.traits.ListTrait;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
@@ -102,7 +101,12 @@ final class SdkRowEncoder
                     f.getTrait(ListTrait.class).memberFieldInfo().marshallingType() == MarshallingType.SDK_POJO) {
                 MapBlockBuilder mapBlockBuilder = mapType.createBlockBuilder(null, list.size());
                 for (Object value : list) {
-                    mapType.writeObject(mapBlockBuilder, encodeSdkPojo((SdkPojo) value));
+                    SqlMap encodedValue = encodeSdkPojo((SdkPojo) value);
+                    if (encodedValue == null) {
+                        mapBlockBuilder.appendNull();
+                        continue;
+                    }
+                    mapType.writeObject(mapBlockBuilder, encodedValue);
                 }
                 return mapBlockBuilder.build();
             }
@@ -121,14 +125,13 @@ final class SdkRowEncoder
     private static SqlMap encodeSdkPojo(SdkPojo sdkPojo)
     {
         if (sdkPojo == null) {
-            return nullMap();
+            return null;
         }
         MapBlockBuilder values = mapType.createBlockBuilder(null, sdkPojo.sdkFields().size());
         values.buildEntry((keyBuilder, valueBuilder) -> {
             for (SdkField<?> field : sdkPojo.sdkFields()) {
                 VARCHAR.writeString(keyBuilder, field.memberName());
-                Object value = field.getValueOrDefault(sdkPojo);
-                VARCHAR.writeString(valueBuilder, Objects.toString(value, ""));
+                writeNullableString(valueBuilder, field.getValueOrDefault(sdkPojo));
             }
         });
         return mapType.getObject(values.build(), 0);
@@ -137,23 +140,25 @@ final class SdkRowEncoder
     private static SqlMap encodeMap(Map<?, ?> map)
     {
         if (map == null) {
-            return nullMap();
+            return null;
         }
         MapBlockBuilder values = mapType.createBlockBuilder(null, map.size());
         values.buildEntry((keyBuilder, valueBuilder) -> {
             for (Map.Entry<?, ?> entry : map.entrySet()) {
                 VARCHAR.writeString(keyBuilder, (String) entry.getKey());
-                Object value = entry.getValue();
-                VARCHAR.writeString(valueBuilder, Objects.toString(value, ""));
+                writeNullableString(valueBuilder, entry.getValue());
             }
         });
         return mapType.getObject(values.build(), 0);
     }
 
-    private static SqlMap nullMap()
+    // writing NULL values instead of skipping keys keeps the subscript operator working, since it fails for missing keys
+    private static void writeNullableString(BlockBuilder blockBuilder, Object value)
     {
-        MapBlockBuilder values = mapType.createBlockBuilder(null, 0);
-        values.appendNull();
-        return mapType.getObject(values.build(), 0);
+        if (value == null) {
+            blockBuilder.appendNull();
+            return;
+        }
+        VARCHAR.writeString(blockBuilder, value.toString());
     }
 }
