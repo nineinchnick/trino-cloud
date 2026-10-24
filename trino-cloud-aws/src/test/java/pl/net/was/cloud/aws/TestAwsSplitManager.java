@@ -14,6 +14,7 @@
 
 package pl.net.was.cloud.aws;
 
+import com.google.common.collect.ImmutableMap;
 import io.airlift.slice.Slice;
 import io.airlift.slice.Slices;
 import io.opentelemetry.api.OpenTelemetry;
@@ -29,14 +30,19 @@ import io.trino.testing.TestingConnectorSession;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import pl.net.was.cloud.aws.filters.FilterApplier;
+import pl.net.was.cloud.aws.filters.FilterType;
+import software.amazon.awssdk.services.ec2.model.Vpc;
 import software.amazon.awssdk.services.s3.S3Client;
 
 import java.util.List;
 import java.util.Map;
 import java.util.stream.IntStream;
 
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.trino.spi.connector.DynamicFilterSnapshot.EMPTY;
 import static io.trino.spi.type.VarcharType.VARCHAR;
+import static java.util.function.Function.identity;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.TestInstance.Lifecycle.PER_CLASS;
 import static pl.net.was.cloud.aws.filters.FilterApplier.ID_BATCH_SIZE;
@@ -105,6 +111,73 @@ final class TestAwsSplitManager
                 bucketName, Domain.multipleValues(VARCHAR, List.of(Slices.utf8Slice("a"), Slices.utf8Slice("b"))).union(Domain.onlyNull(VARCHAR)))));
 
         assertThat(splits(table)).containsExactly(AwsConnectorSplit.WHOLE_TABLE);
+    }
+
+    @Test
+    void testSplitPerKnownValueWithoutFilter()
+    {
+        assertThat(knownValueSplits(Map.of()))
+                .containsExactlyInAnyOrder(
+                        Map.of("owner_id", List.of("owner-a")),
+                        Map.of("owner_id", List.of("owner-b")));
+    }
+
+    @Test
+    void testFilterOnKnownValues()
+    {
+        assertThat(knownValueSplits(Map.of("owner_id", List.of("owner-b", "owner-c"))))
+                .containsExactly(Map.of("owner_id", List.of("owner-b")));
+        assertThat(knownValueSplits(Map.of("owner_id", List.of("owner-c"))))
+                .isEmpty();
+        assertThat(knownValueSplits(Map.of("owner_id", List.of("owner-a"))))
+                .containsExactly(Map.of());
+    }
+
+    @Test
+    void testSplitPerCombinationOfBatches()
+    {
+        assertThat(knownValueSplits(Map.of("vpc_id", List.of("vpc-1", "vpc-2", "vpc-3"))))
+                .containsExactlyInAnyOrder(
+                        Map.of("owner_id", List.of("owner-a"), "vpc_id", List.of("vpc-1", "vpc-2")),
+                        Map.of("owner_id", List.of("owner-a"), "vpc_id", List.of("vpc-3")),
+                        Map.of("owner_id", List.of("owner-b"), "vpc_id", List.of("vpc-1", "vpc-2")),
+                        Map.of("owner_id", List.of("owner-b"), "vpc_id", List.of("vpc-3")));
+    }
+
+    // owners are known values, like the configured regions of regional tables, and every split column is a varchar
+    private static List<Map<String, List<String>>> knownValueSplits(Map<String, List<String>> filters)
+    {
+        FilterApplier filterApplier = new FilterApplier()
+        {
+            @Override
+            public Map<String, FilterType> getSupportedFilters()
+            {
+                return Map.of("vpc_id", FilterType.EQUAL, "owner_id", FilterType.EQUAL);
+            }
+
+            @Override
+            public Map<String, Integer> getSplitBatchSizes()
+            {
+                return Map.of("vpc_id", 2, "owner_id", 1);
+            }
+
+            @Override
+            public Map<String, List<String>> getKnownValues()
+            {
+                return Map.of("owner_id", List.of("owner-a", "owner-b"));
+            }
+        };
+        AwsTable table = AwsTable.builder(new SchemaTableName("test", "vpcs"), SdkTableColumns.of(Vpc.builder().sdkFields()))
+                .rowSource((_, _) -> List.of())
+                .filterApplier(filterApplier)
+                .build();
+        ImmutableMap.Builder<ColumnHandle, Domain> domains = ImmutableMap.builder();
+        filters.forEach((column, values) -> domains.put(table.columnHandle(column), Domain.multipleValues(VARCHAR, values.stream().map(Slices::utf8Slice).toList())));
+        return AwsSplitManager.splits(table, filterApplier, TupleDomain.withColumnDomains(domains.buildOrThrow())).stream()
+                .<Map<String, List<String>>>map(split -> split.constraint().getDomains().orElseThrow().keySet().stream()
+                        .map(column -> ((AwsColumnHandle) column).name())
+                        .collect(toImmutableMap(identity(), column -> values(split, column))))
+                .toList();
     }
 
     private List<AwsConnectorSplit> splits(AwsTableHandle table)
