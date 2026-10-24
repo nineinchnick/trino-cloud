@@ -15,9 +15,10 @@
 package pl.net.was.cloud.aws;
 
 import io.airlift.slice.Slices;
-import io.trino.spi.block.Block;
-import io.trino.spi.block.SqlMap;
-import io.trino.spi.block.SqlRow;
+import io.trino.spi.block.ArrayBlockBuilder;
+import io.trino.spi.block.BlockBuilder;
+import io.trino.spi.block.MapBlockBuilder;
+import io.trino.spi.block.RowBlockBuilder;
 import io.trino.spi.type.ArrayType;
 import io.trino.spi.type.MapType;
 import io.trino.spi.type.RowType;
@@ -36,9 +37,6 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
-import static io.trino.spi.block.ArrayValueBuilder.buildArrayValue;
-import static io.trino.spi.block.MapValueBuilder.buildMapValue;
-import static io.trino.spi.block.RowValueBuilder.buildRowValue;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.DateTimeEncoding.packDateTimeWithZone;
@@ -49,7 +47,7 @@ import static io.trino.spi.type.SmallintType.SMALLINT;
 import static io.trino.spi.type.TimeZoneKey.UTC_KEY;
 import static io.trino.spi.type.TimestampWithTimeZoneType.TIMESTAMP_TZ_MILLIS;
 import static io.trino.spi.type.TinyintType.TINYINT;
-import static io.trino.spi.type.TypeUtils.writeNativeValue;
+import static io.trino.spi.type.TypeUtils.readNativeValue;
 import static io.trino.spi.type.VarbinaryType.VARBINARY;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static pl.net.was.cloud.aws.SdkColumns.mappedFields;
@@ -89,81 +87,93 @@ final class SdkRowEncoder
     /**
      * Returns the value in the Trino native representation of the type, as returned by {@link SdkColumns#type(SdkField)}.
      */
-    // must support all types from SdkColumns.TYPE_MAP
     public static Object encodeValue(Type type, Object value)
     {
+        BlockBuilder output = type.createBlockBuilder(null, 1);
+        writeValue(type, output, value);
+        return readNativeValue(type, output.build(), 0);
+    }
+
+    /**
+     * Writes the value directly into the output, without creating intermediate values for nested objects, lists, and maps.
+     * Must support all types from {@code SdkColumns.TYPE_MAP}.
+     */
+    public static void writeValue(Type type, BlockBuilder output, Object value)
+    {
         if (isUnset(value)) {
-            return null;
+            output.appendNull();
+            return;
         }
         if (type.equals(VARCHAR)) {
-            return Slices.utf8Slice(switch (value) {
+            VARCHAR.writeString(output, switch (value) {
                 case String string -> string;
                 case BigDecimal decimal -> decimal.toPlainString();
                 // objects nested deeper than SdkColumns.MAX_NESTING_DEPTH and documents
                 default -> value.toString();
             });
+            return;
         }
         if (type.equals(BIGINT) || type.equals(INTEGER) || type.equals(SMALLINT) || type.equals(TINYINT)) {
-            return ((Number) value).longValue();
+            type.writeLong(output, ((Number) value).longValue());
+            return;
         }
         if (type.equals(REAL)) {
-            return (long) Float.floatToIntBits((Float) value);
+            REAL.writeFloat(output, (Float) value);
+            return;
         }
         if (type.equals(DOUBLE)) {
-            return ((Number) value).doubleValue();
+            DOUBLE.writeDouble(output, ((Number) value).doubleValue());
+            return;
         }
         if (type.equals(BOOLEAN)) {
-            return value;
+            BOOLEAN.writeBoolean(output, (Boolean) value);
+            return;
         }
         if (type.equals(TIMESTAMP_TZ_MILLIS)) {
-            return packDateTimeWithZone(((Instant) value).toEpochMilli(), UTC_KEY);
+            TIMESTAMP_TZ_MILLIS.writeLong(output, packDateTimeWithZone(((Instant) value).toEpochMilli(), UTC_KEY));
+            return;
         }
         if (type.equals(VARBINARY)) {
-            return Slices.wrappedBuffer(((SdkBytes) value).asByteArrayUnsafe());
+            VARBINARY.writeSlice(output, Slices.wrappedBuffer(((SdkBytes) value).asByteArrayUnsafe()));
+            return;
         }
-        return switch (type) {
-            case RowType rowType -> encodeObject(rowType, (SdkPojo) value);
-            case ArrayType arrayType -> encodeList(arrayType, (List<?>) value);
-            case MapType mapType when value instanceof List<?> list -> encodeKeyValueList(mapType, list);
-            case MapType mapType -> encodeMap(mapType, (Map<?, ?>) value);
+        switch (type) {
+            case RowType rowType -> ((RowBlockBuilder) output).buildEntry(fieldBuilders -> writeObject(rowType, (SdkPojo) value, fieldBuilders));
+            case ArrayType arrayType -> ((ArrayBlockBuilder) output).buildEntry(elementBuilder -> writeList(arrayType.getElementType(), (List<?>) value, elementBuilder));
+            case MapType mapType when value instanceof List<?> list -> writeMap(mapType, keyValueEntries(list), (MapBlockBuilder) output);
+            case MapType mapType -> writeMap(mapType, (Map<?, ?>) value, (MapBlockBuilder) output);
             default -> throw new IllegalArgumentException("Unsupported type %s for value %s".formatted(type, value));
-        };
+        }
     }
 
-    private static SqlRow encodeObject(RowType rowType, SdkPojo object)
+    private static void writeObject(RowType rowType, SdkPojo object, List<BlockBuilder> fieldBuilders)
     {
         List<SdkField<?>> fields = mappedFields(object.sdkFields());
-        return buildRowValue(rowType, fieldBuilders -> {
-            for (int i = 0; i < fields.size(); i++) {
-                Type fieldType = rowType.getFields().get(i).getType();
-                writeNativeValue(fieldType, fieldBuilders.get(i), encodeValue(fieldType, fields.get(i).getValueOrDefault(object)));
-            }
-        });
+        for (int i = 0; i < fields.size(); i++) {
+            writeValue(rowType.getFields().get(i).getType(), fieldBuilders.get(i), fields.get(i).getValueOrDefault(object));
+        }
     }
 
-    private static Block encodeList(ArrayType arrayType, List<?> list)
+    private static void writeList(Type elementType, List<?> list, BlockBuilder elementBuilder)
     {
-        Type elementType = arrayType.getElementType();
-        return buildArrayValue(arrayType, list.size(), elementBuilder -> {
-            for (Object element : list) {
-                writeNativeValue(elementType, elementBuilder, encodeValue(elementType, element));
-            }
-        });
+        for (Object element : list) {
+            writeValue(elementType, elementBuilder, element);
+        }
     }
 
-    private static SqlMap encodeMap(MapType mapType, Map<?, ?> map)
+    private static void writeMap(MapType mapType, Map<?, ?> map, MapBlockBuilder output)
     {
         Type valueType = mapType.getValueType();
-        return buildMapValue(mapType, map.size(), (keyBuilder, valueBuilder) -> {
+        output.buildEntry((keyBuilder, valueBuilder) -> {
             for (Map.Entry<?, ?> entry : map.entrySet()) {
                 VARCHAR.writeString(keyBuilder, (String) entry.getKey());
-                writeNativeValue(valueType, valueBuilder, encodeValue(valueType, entry.getValue()));
+                writeValue(valueType, valueBuilder, entry.getValue());
             }
         });
     }
 
     // see SdkColumns.isKeyValueList
-    private static SqlMap encodeKeyValueList(MapType mapType, List<?> list)
+    private static Map<String, String> keyValueEntries(List<?> list)
     {
         // map keys must be unique and not NULL, which AWS guarantees for tags, but it doesn't hurt to check
         Map<String, String> entries = new LinkedHashMap<>();
@@ -176,7 +186,7 @@ final class SdkRowEncoder
             }
             entries.put(key, (String) fields.get(1).getValueOrDefault(entry));
         }
-        return encodeMap(mapType, entries);
+        return entries;
     }
 
     // the SDK returns auto construct collections instead of null for collections missing from the response
