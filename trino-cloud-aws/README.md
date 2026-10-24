@@ -1,7 +1,14 @@
 trino-cloud-aws
 =================
 
-This is a Trino connector to access AWS resources using SQL.
+The AWS connector allows querying and managing [Amazon Web
+Services](https://aws.amazon.com/) resources, like EC2 instances or S3 buckets,
+using SQL. Every table maps to an AWS API operation that lists resources, and
+every row is one resource returned by that operation.
+
+The connector can also create, modify and remove some resources using `INSERT`,
+`UPDATE` and `DELETE` statements. Writes are disabled by default, see
+[SQL support](#sql-support).
 
 # Quick Start
 
@@ -28,182 +35,9 @@ docker exec -it trino-cloud trino --catalog aws --schema ec2
 > Warning: the Docker image doesn't configure any authentication. Anyone who can reach port 8080
 > can run queries using the AWS credentials of the container. Only publish the port on trusted networks,
 > like `-p 127.0.0.1:8080:8080`, and use credentials with read-only permissions,
-> see [Read-only IAM policy](#read-only-iam-policy).
+> see [IAM permissions](#iam-permissions).
 
-# Usage
-
-Not all resources are mapped yet, here's a list of the available schemas and tables:
-* `ec2.availability_zones`
-* `ec2.images`
-* `ec2.instance_types`
-* `ec2.instances`
-* `ec2.key_pairs`
-* `ec2.launch_templates`
-* `ec2.nat_gateways`
-* `ec2.network_interfaces`
-* `ec2.placement_groups`
-* `ec2.prefix_lists`
-* `ec2.public_ipv4_pools`
-* `ec2.regions`
-* `ec2.route_tables`
-* `ec2.security_groups`
-* `ec2.snapshots`
-* `ec2.subnets`
-* `ec2.tags`
-* `ec2.volumes`
-* `ec2.vpc_endpoints`
-* `ec2.vpc_peering_connections`
-* `ec2.vpcs`
-* `ec2.vpn_connections`
-* `ec2.vpn_gateways`
-* `s3.buckets`
-* `s3.deleted_objects`
-* `s3.objects`
-* `s3.object_versions`
-
-Some tables can only be queried with a filter in the `WHERE` clause:
-* `s3.objects`, `s3.object_versions` and `s3.deleted_objects` require `bucket_name = '...'`
-* `ec2.images` requires a filter on `image_id`, `name` or `owner_id`,
-  see [#16](https://github.com/nineinchnick/trino-cloud/issues/16)
-
-For example:
-```sql
-SELECT key, size FROM s3.objects WHERE bucket_name = 'my-bucket';
-```
-
-## Type mapping
-
-Columns are derived from the fields of the AWS SDK model of each table.
-Column and nested field names are the SDK member names in `snake_case`, like `instance_id` for `InstanceId`.
-Acronyms stay whole, like `size_in_gb` for `SizeInGB`, and so do a few mixed-case words,
-like `vcpu_info` for `VCpuInfo`, `etag` for `ETag` and `size_in_mib` for `SizeInMiB`.
-
-| AWS SDK type                                        | Trino type                    |
-|-----------------------------------------------------|-------------------------------|
-| `String`                                            | `varchar`                     |
-| `Byte`                                              | `tinyint`                     |
-| `Short`                                             | `smallint`                    |
-| `Integer`                                           | `integer`                     |
-| `Long`                                              | `bigint`                      |
-| `Float`                                             | `real`                        |
-| `Double`                                            | `double`                      |
-| `Boolean`                                           | `boolean`                     |
-| `Instant`                                           | `timestamp(3) with time zone` |
-| `SdkBytes`                                          | `varbinary`                   |
-| `BigDecimal`                                        | `varchar`                     |
-| `Document`                                          | `varchar` with JSON text      |
-| Nested object                                       | `row(...)`                    |
-| `List`                                              | `array(...)`                  |
-| `Map`                                               | `map(varchar, ...)`           |
-| `List` of objects with a Key and a Value, like tags | `map(varchar, varchar)`       |
-
-Timestamps are in UTC. Values that aren't set in the AWS API response are `NULL`.
-Objects nested more than 8 levels deep are mapped to `varchar`, with the text representation of the SDK object.
-Nested objects are rows, so their fields can be accessed using the dereference operator,
-and tags are maps, indexed by the tag key:
-```sql
-SELECT instance_id, state.name, placement.availability_zone, tags['Name']
-FROM ec2.instances
-WHERE launch_time > now() - INTERVAL '1' DAY;
-```
-
-To find instances without a tag, use `element_at`, because the subscript operator fails for missing keys:
-```sql
-SELECT instance_id FROM ec2.instances WHERE element_at(tags, 'Owner') IS NULL;
-```
-
-## Writes
-
-Writes are disabled by default, so the connector can't create, modify or remove any AWS resources.
-To enable `INSERT`, `UPDATE` and `DELETE`, set `aws.read-only=false` in the catalog properties file.
-Every user who can access the catalog can then write, acting as the AWS identity of the connector,
-so use a separate catalog with its own credentials for writes, and limit who can access it
-with Trino [access control](https://trino.io/docs/current/security/built-in-system-access-control.html).
-
-Writes aren't transactional. Every row is a separate AWS API call, which can't be rolled back.
-If a statement fails, the resources created, modified or removed for earlier rows stay that way.
-The coordinator logs the IDs of the resources created by each `INSERT`,
-and workers log the resources created by an `INSERT` that failed.
-
-A single `INSERT` can insert up to `aws.max-inserted-rows` rows, 10 by default.
-When launching instances, the connector sets a client token derived from the query and the row,
-so if a request is sent again for the same row, it doesn't launch another instance.
-
-The following tables support inserting into:
-* `ec2.images`, which creates an image from the instance set in the `instance_id` column
-* `ec2.instances`, which launches an instance
-* `s3.buckets`, which creates a bucket
-
-Columns are set in the fields of the AWS API request with the same name, so only some columns can be inserted,
-and inserting a column that doesn't have a matching request field fails.
-The values are converted back to the types of the request fields, so rows are set as nested objects.
-The `tags` column sets the tags of the created instance or image.
-For example:
-```sql
-INSERT INTO ec2.instances (image_id, instance_type, key_name, ebs_optimized, tags)
-VALUES ('ami-05f7491af5eef733a', 't2.micro', 'default', false, MAP(ARRAY['Name'], ARRAY['web']));
-```
-
-When inserting into `s3.buckets`, the bucket is created in the region of the catalog, unless the `bucket_region` column is set:
-```sql
-INSERT INTO s3.buckets (name, bucket_region) VALUES ('my-bucket', 'eu-central-1');
-```
-
-The `ec2.instances` table also has limited `UPDATE` and `DELETE` support.
-`UPDATE` and `DELETE` require a filter on the primary key column, like `WHERE instance_id = '...'`,
-so a single statement can't change or remove every resource at once.
-
-Only the `state_name` and `instance_type` columns can be updated.
-`state_name` holds the same value as `state.name`, and setting it to `stopped` or `running` stops or starts the instance:
-```sql
-UPDATE ec2.instances SET state_name = 'stopped' WHERE instance_id = 'i-04a7cf7ca232cd251';
-```
-
-To change the instance type, stop the instance first, because AWS only allows it for stopped instances:
-```sql
-UPDATE ec2.instances SET instance_type = 't3.small' WHERE instance_id = 'i-04a7cf7ca232cd251';
-```
-
-To terminate it, delete the row:
-```sql
-DELETE FROM ec2.instances WHERE instance_id = 'i-04a7cf7ca232cd251';
-```
-
-> Note that the row won't be immediately deleted if the instance is running,
-> as it'll be in the `shutting-down` state for a while.
-
-# Configuration
-
-The following configuration options are recognized by this connector:
-
-| Property name           | Description                                                                                                                                     | Default                               |
-|-------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------|
-| `aws.region`            | AWS region of the EC2 and S3 endpoints, like `eu-central-1`. Unknown region names are rejected when the catalog is created. Replaces `region`.  | Region from the AWS SDK default chain |
-| `aws.endpoint`          | Endpoint URL that overrides the AWS service endpoints, for example `http://localhost:4566` for an emulator. Enables S3 path-style access.       |                                       |
-| `aws.access-key`        | AWS access key ID. Requires `aws.secret-key`.                                                                                                   |                                       |
-| `aws.secret-key`        | AWS secret access key. Requires `aws.access-key`.                                                                                               |                                       |
-| `aws.profile`           | Name of a profile from the AWS shared `~/.aws/config` and `~/.aws/credentials` files. Can't be used with `aws.access-key` and `aws.secret-key`. |                                       |
-| `aws.iam-role`          | ARN of an IAM role to assume using STS, with the credentials from the other properties.                                                         |                                       |
-| `aws.external-id`       | External ID required by the trust policy of the role set in `aws.iam-role`. Requires `aws.iam-role`.                                            |                                       |
-| `aws.role-session-name` | Session name used when assuming the role set in `aws.iam-role`.                                                                                 | `trino-cloud`                         |
-| `aws.max-connections`   | Maximum number of concurrent connections to each AWS service.                                                                                   | `50`                                  |
-| `aws.retry-mode`        | AWS SDK retry mode used when requests fail or are throttled: `STANDARD`, `LEGACY` or `ADAPTIVE`.                                                | `ADAPTIVE`                            |
-| `aws.max-error-retries` | Maximum number of retries of a failed AWS request.                                                                                              | `10`                                  |
-| `aws.read-only`         | Reject `INSERT`, `UPDATE` and `DELETE`, which create, modify and remove AWS resources. See [Writes](#writes).                                   | `true`                                |
-| `aws.max-inserted-rows` | Maximum number of rows a single `INSERT` can insert, to limit the number of resources it creates. The limit applies to each writer task.        | `10`                                  |
-
-If `aws.region` is not set, the connector uses the
-[AWS SDK default region provider chain](https://docs.aws.amazon.com/sdk-for-java/latest/developer-guide/region-selection.html),
-which reads the `AWS_REGION` environment variable, the `aws.region` Java system property, or the region of the AWS profile.
-If no region can be resolved, creating the catalog fails.
-
-## Credentials
-
-Without `aws.access-key`, `aws.secret-key` or `aws.profile`, the connector reads credentials using the
-[AWS SDK default credentials provider chain](https://docs.aws.amazon.com/sdk-for-java/latest/developer-guide/credentials-chain.html).
-It checks, in order: Java system properties, environment variables like `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
-and `AWS_SESSION_TOKEN`, web identity tokens, the shared `~/.aws/credentials` and `~/.aws/config` files,
-and container or EC2 instance roles.
+## Using an AWS CLI profile
 
 To use a profile from the AWS CLI configuration, mount the `~/.aws` directory and set `AWS_PROFILE`:
 ```bash
@@ -219,30 +53,25 @@ docker run \
 
 For SSO profiles, run `aws sso login --profile my-profile` first, so the cached token is valid.
 
-Each catalog can use different credentials, so one Trino server can query multiple AWS accounts at the same time.
-For example, create a `production.properties` catalog file that uses a profile:
-```
-connector.name=aws
-aws.region=eu-central-1
-aws.profile=production
-```
+# Requirements
 
-And a `staging.properties` catalog file that assumes a role in another account:
-```
-connector.name=aws
-aws.region=eu-west-1
-aws.iam-role=arn:aws:iam::123456789012:role/trino-readonly
-aws.external-id=${ENV:STAGING_EXTERNAL_ID}
-```
+To connect to AWS, you need:
 
-Avoid putting secret keys directly in catalog files. Use environment variables instead, like
-`aws.secret-key=${ENV:STAGING_SECRET_KEY}`. Trino masks the value of `aws.secret-key` when it logs the configuration.
+- The Trino version the connector was built for. Each release of the connector
+  is built for one Trino version, set in the `dep.trino.version` property of the
+  `pom.xml` file of the release tag, and the plugin might not load in other
+  versions.
+- Network access from the Trino coordinator and workers to the AWS EC2 and S3
+  endpoints of the configured region, or to the endpoint set in the
+  `aws.endpoint` property.
+- An AWS account, and credentials of an IAM identity with permissions to call
+  the AWS API operations of the queried tables, see [IAM permissions](#iam-permissions).
 
-## Read-only IAM policy
+## IAM permissions
 
-With the default `aws.read-only=true`, the connector only needs permissions to list resources.
-Use an IAM policy like the following one, to make sure the connector can't change anything,
-even if writes are enabled by mistake:
+With the default `aws.read-only=true`, the connector only needs permissions to
+list resources. Use an IAM policy like the following one, to make sure the
+connector can't change anything, even if writes are enabled by mistake:
 
 ```json
 {
@@ -292,8 +121,399 @@ even if writes are enabled by mistake:
 }
 ```
 
-To limit the buckets that can be listed, replace the `Resource` of the `ListS3` statement
-with bucket ARNs, like `arn:aws:s3:::my-bucket`, and move `s3:ListAllMyBuckets` to a statement with `"Resource": "*"`.
+To limit the buckets that can be listed, replace the `Resource` of the `ListS3`
+statement with bucket ARNs, like `arn:aws:s3:::my-bucket`, and move
+`s3:ListAllMyBuckets` to a statement with `"Resource": "*"`.
+
+To use the statements described in [SQL support](#sql-support) with `aws.read-only=false`,
+the IAM identity also needs the permissions to call the following AWS API
+operations:
+
+IAM actions required for writes:
+
+| Statement                   | IAM actions                                                                                                                                  |
+|-----------------------------|----------------------------------------------------------------------------------------------------------------------------------------------|
+| `INSERT INTO ec2.images`    | `ec2:CreateImage`, and `ec2:CreateTags` to set the `tags` column                                                                             |
+| `DELETE FROM ec2.images`    | `ec2:DeregisterImage`                                                                                                                        |
+| `INSERT INTO ec2.instances` | `ec2:RunInstances`, `ec2:CreateTags` to set the `tags` column, and `iam:PassRole` to launch instances with an instance profile               |
+| `UPDATE ec2.instances`      | `ec2:StartInstances` and `ec2:StopInstances` to set the `state_name` column, `ec2:ModifyInstanceAttribute` to set the `instance_type` column |
+| `DELETE FROM ec2.instances` | `ec2:TerminateInstances`                                                                                                                     |
+| `INSERT INTO s3.buckets`    | `s3:CreateBucket`                                                                                                                            |
+
+Use a separate catalog with its own credentials for writes, and limit the
+resources these actions can be applied to with IAM policy conditions.
+
+# Configuration
+
+To configure the AWS connector, create a catalog properties file in
+`etc/catalog` named, for example, `example.properties`, to mount the AWS
+connector as the `example` catalog. Create the file with the following
+contents, replacing the region as appropriate:
+
+```text
+connector.name=aws
+aws.region=eu-central-1
+```
+
+If `aws.region` is not set, the connector uses the [AWS SDK default region
+provider
+chain](https://docs.aws.amazon.com/sdk-for-java/latest/developer-guide/region-selection.html),
+which reads the `AWS_REGION` environment variable, the `aws.region` Java system
+property, or the region of the AWS profile. If no region can be resolved, or the
+region name is unknown, creating the catalog fails.
+
+## Credentials
+
+Without `aws.access-key`, `aws.secret-key` or `aws.profile`, the connector reads
+credentials using the [AWS SDK default credentials provider
+chain](https://docs.aws.amazon.com/sdk-for-java/latest/developer-guide/credentials-chain.html).
+It checks, in order: Java system properties, environment variables like
+`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN`, web
+identity tokens, the shared `~/.aws/credentials` and `~/.aws/config` files, and
+container or EC2 instance roles.
+
+When using an SSO profile, run `aws sso login --profile my-profile` before
+starting Trino, so the cached token is valid.
+
+Each catalog can use different credentials, so one Trino cluster can query
+multiple AWS accounts at the same time. For example, create a
+`production.properties` catalog file that uses a profile:
+
+```text
+connector.name=aws
+aws.region=eu-central-1
+aws.profile=production
+```
+
+And a `staging.properties` catalog file that assumes a role in another account:
+
+```text
+connector.name=aws
+aws.region=eu-west-1
+aws.iam-role=arn:aws:iam::123456789012:role/trino-readonly
+aws.external-id=${ENV:STAGING_EXTERNAL_ID}
+```
+
+Avoid putting secret keys directly in catalog files. Use environment variables
+instead, like `aws.secret-key=${ENV:STAGING_SECRET_KEY}`. Trino masks the value
+of `aws.secret-key` when it logs the configuration.
+
+# Configuration properties
+
+The following configuration properties are available:
+
+AWS configuration properties:
+
+| Property name           | Description                                                                                                                                                            | Default                                               |
+|-------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------|
+| `aws.region`            | AWS region of the EC2 and S3 endpoints, like `eu-central-1`. Unknown region names are rejected when the catalog is created. Replaces the deprecated `region` property. | Region from the AWS SDK default region provider chain |
+| `aws.endpoint`          | Endpoint URL that overrides the AWS service endpoints, for example `http://localhost:4566` for an emulator. Enables S3 path-style access.                              |                                                       |
+| `aws.access-key`        | AWS access key ID. Requires `aws.secret-key`.                                                                                                                          |                                                       |
+| `aws.secret-key`        | AWS secret access key. Requires `aws.access-key`.                                                                                                                      |                                                       |
+| `aws.profile`           | Name of a profile from the AWS shared `~/.aws/config` and `~/.aws/credentials` files. Can't be used with `aws.access-key` and `aws.secret-key`.                        |                                                       |
+| `aws.iam-role`          | ARN of an IAM role to assume using STS, with the credentials from the other properties.                                                                                |                                                       |
+| `aws.external-id`       | External ID required by the trust policy of the role set in `aws.iam-role`. Requires `aws.iam-role`.                                                                   |                                                       |
+| `aws.role-session-name` | Session name used when assuming the role set in `aws.iam-role`.                                                                                                        | `trino-cloud`                                         |
+| `aws.max-connections`   | Maximum number of concurrent connections to each AWS service.                                                                                                          | `50`                                                  |
+| `aws.retry-mode`        | AWS SDK retry mode used when requests fail or are throttled: `STANDARD`, `LEGACY` or `ADAPTIVE`.                                                                       | `ADAPTIVE`                                            |
+| `aws.max-error-retries` | Maximum number of retries of a failed AWS request.                                                                                                                     | `10`                                                  |
+| `aws.read-only`         | Reject `INSERT`, `UPDATE` and `DELETE` statements, which create, modify and remove AWS resources. See [SQL support](#sql-support).                                             | `true`                                                |
+| `aws.max-inserted-rows` | Maximum number of rows a single `INSERT` statement can insert, to limit the number of resources it creates. The limit applies to each writer task.                     | `10`                                                  |
+
+# Type mapping
+
+The columns of every table are derived from the fields of the AWS SDK for Java
+model of the listed resources. The connector maps the SDK types to Trino types
+according to the following table:
+
+AWS SDK type to Trino type mapping:
+
+| AWS SDK type                                                  | Trino type                    |
+|---------------------------------------------------------------|-------------------------------|
+| `String`                                                      | `VARCHAR`                     |
+| `Byte`                                                        | `TINYINT`                     |
+| `Short`                                                       | `SMALLINT`                    |
+| `Integer`                                                     | `INTEGER`                     |
+| `Long`                                                        | `BIGINT`                      |
+| `Float`                                                       | `REAL`                        |
+| `Double`                                                      | `DOUBLE`                      |
+| `Boolean`                                                     | `BOOLEAN`                     |
+| `Instant`                                                     | `TIMESTAMP(3) WITH TIME ZONE` |
+| `SdkBytes`                                                    | `VARBINARY`                   |
+| `BigDecimal`                                                  | `VARCHAR`                     |
+| `Document`                                                    | `VARCHAR` with JSON text      |
+| Nested object                                                 | `ROW(...)`                    |
+| `List`                                                        | `ARRAY(...)`                  |
+| `Map`                                                         | `MAP(VARCHAR, ...)`           |
+| `List` of objects with a `Key` and a `Value` field, like tags | `MAP(VARCHAR, VARCHAR)`       |
+
+No other types are supported.
+
+Timestamps are in UTC. Values that aren't set in the AWS API response are
+`NULL`. Objects nested more than 8 levels deep are mapped to `VARCHAR`, with the
+text representation of the SDK object.
+
+Column and nested field names are the SDK member names in `snake_case`, like
+`instance_id` for `InstanceId`. Acronyms stay whole, like `size_in_gb` for
+`SizeInGB`, and so do a few mixed-case words, like `vcpu_info` for `VCpuInfo`,
+`etag` for `ETag`, `size_in_mib` for `SizeInMiB` and `baseline_throughput_in_mbps`
+for `BaselineThroughputInMBps`.
+
+Nested objects are rows, so their fields can be accessed using the dereference
+operator, and tags are maps, indexed by the tag key:
+
+```sql
+SELECT instance_id, state.name, placement.availability_zone, tags['Name']
+FROM example.ec2.instances
+WHERE launch_time > now() - INTERVAL '1' DAY;
+```
+
+To find resources without a tag, use `element_at`, because the subscript
+operator fails for missing keys:
+
+```sql
+SELECT instance_id
+FROM example.ec2.instances
+WHERE element_at(tags, 'Owner') IS NULL;
+```
+
+Some tables have columns that differ from the SDK model:
+
+- The `state_name` column of `ec2.instances` holds the same value as
+  `state.name`, like `running`, so the state can be changed by updating a
+  single value.
+- The `instance_id` column of `ec2.images` is always `NULL` when reading. It
+  sets the instance to create the image from when inserting.
+- The `bucket_name` column of the `s3.objects`, `s3.object_versions` and
+  `s3.deleted_objects` tables is the name of the listed bucket, taken from the
+  required filter.
+
+# Tables
+
+The connector provides the `ec2` and `s3` schemas. The tables are not created by
+users, and every catalog has the same set of tables.
+
+The AWS API operations that list resources only support a few filters. The
+connector pushes down equality and `IN` predicates on the columns listed in the
+**Pushed-down filters** column of the following tables, so AWS returns fewer
+rows. Predicates that allow `NULL` values are not pushed down. Trino applies all
+other predicates after reading every row returned by the AWS API operation.
+
+Tables with a **Required filters** column value fail with the
+`AWS_MISSING_PREDICATE` error code when the query doesn't have an equality or
+`IN` predicate on that column, because the AWS API can't list the resources
+without it.
+
+## `ec2` schema
+
+The tables in the `ec2` schema list resources in the region of the catalog.
+
+| Table                         | Description                            | Required filters | Pushed-down filters                    | Supported writes             |
+|-------------------------------|----------------------------------------|------------------|----------------------------------------|------------------------------|
+| `ec2.availability_zones`      | Availability Zones and Local Zones     |                  |                                        |                              |
+| `ec2.images`                  | Amazon Machine Images (AMIs)           |                  | `image_id`, `name`, `owner_id`         | `INSERT`, `DELETE`           |
+| `ec2.instance_types`          | Instance types available in the region |                  |                                        |                              |
+| `ec2.instances`               | EC2 instances                          |                  | `instance_id`                          | `INSERT`, `UPDATE`, `DELETE` |
+| `ec2.key_pairs`               | Key pairs                              |                  |                                        |                              |
+| `ec2.launch_templates`        | Launch templates                       |                  |                                        |                              |
+| `ec2.nat_gateways`            | NAT gateways                           |                  |                                        |                              |
+| `ec2.network_interfaces`      | Network interfaces                     |                  |                                        |                              |
+| `ec2.placement_groups`        | Placement groups                       |                  |                                        |                              |
+| `ec2.prefix_lists`            | Prefix lists of AWS services           |                  |                                        |                              |
+| `ec2.public_ipv4_pools`       | Public IPv4 address pools              |                  |                                        |                              |
+| `ec2.regions`                 | Regions enabled for the account        |                  |                                        |                              |
+| `ec2.route_tables`            | Route tables                           |                  |                                        |                              |
+| `ec2.security_groups`         | Security groups                        |                  |                                        |                              |
+| `ec2.snapshots`               | EBS snapshots                          |                  | `snapshot_id`, `volume_id`, `owner_id` |                              |
+| `ec2.subnets`                 | Subnets                                |                  |                                        |                              |
+| `ec2.tags`                    | Tags of all EC2 resources              |                  |                                        |                              |
+| `ec2.volumes`                 | EBS volumes                            |                  |                                        |                              |
+| `ec2.vpc_endpoints`           | VPC endpoints                          |                  |                                        |                              |
+| `ec2.vpc_peering_connections` | VPC peering connections                |                  |                                        |                              |
+| `ec2.vpcs`                    | VPCs                                   |                  |                                        |                              |
+| `ec2.vpn_connections`         | Site-to-Site VPN connections           |                  |                                        |                              |
+| `ec2.vpn_gateways`            | Virtual private gateways               |                  |                                        |                              |
+
+Without a filter on `owner_id`, the `ec2.images` and `ec2.snapshots` tables only
+list images and snapshots owned by the account of the catalog credentials,
+because listing all public images or snapshots is slow and rarely useful. A
+filter on `image_id` or `snapshot_id` without a filter on `owner_id` lists the
+images or snapshots with these IDs, including public and shared ones, and skips
+IDs that don't exist. To list public images, filter on the owner account ID:
+
+```sql
+SELECT image_id, name, creation_date
+FROM example.ec2.images
+WHERE owner_id = '137112412989' AND name LIKE 'al2023-ami-2023%';
+```
+
+## `s3` schema
+
+The tables in the `s3` schema list buckets in all regions, and access each
+bucket in its own region.
+
+| Table                | Description                                     | Required filters | Pushed-down filters | Supported writes |
+|----------------------|-------------------------------------------------|------------------|---------------------|------------------|
+| `s3.buckets`         | Buckets owned by the account                    |                  |                     | `INSERT`         |
+| `s3.objects`         | Current versions of objects in a bucket         | `bucket_name`    | `bucket_name`       |                  |
+| `s3.object_versions` | All versions of objects in a bucket             | `bucket_name`    | `bucket_name`       |                  |
+| `s3.deleted_objects` | Delete markers of objects in a versioned bucket | `bucket_name`    | `bucket_name`       |                  |
+
+For example, to list the largest objects in a bucket:
+
+```sql
+SELECT key, size, last_modified
+FROM example.s3.objects
+WHERE bucket_name = 'my-bucket'
+ORDER BY size DESC
+LIMIT 10;
+```
+
+# SQL support
+
+The connector provides read access to all tables, and write access to a few of
+them. In addition to the [globally available](https://trino.io/docs/current/language/sql-support.html#sql-globally-available) and [read
+operation](https://trino.io/docs/current/language/sql-support.html#sql-read-operations) statements, the connector supports the
+following features, when `aws.read-only` is set to `false`:
+
+- [INSERT](https://trino.io/docs/current/sql/insert.html), see also [INSERT](#insert)
+- [UPDATE](https://trino.io/docs/current/sql/update.html), see also [UPDATE](#update)
+- [DELETE](https://trino.io/docs/current/sql/delete.html), see also [DELETE](#delete)
+
+Writes are disabled by default, so the connector can't create, modify or remove
+any AWS resources. Statements that write fail with the `NOT_SUPPORTED` error
+code. To enable writes, set `aws.read-only=false` in the catalog properties
+file. Every user who can access the catalog can then write, acting as the AWS
+identity of the connector, so use a separate catalog with its own credentials
+for writes, and limit who can access it with Trino [access
+control](https://trino.io/docs/current/security/built-in-system-access-control.html). See [IAM permissions](#iam-permissions)
+for the IAM actions required for writes.
+
+## Non-transactional writes
+
+Writes aren't transactional. Every row is a separate AWS API call, which can't
+be rolled back. If a statement fails, the resources created, modified or removed
+for earlier rows stay that way. The coordinator logs the IDs of the resources
+created by each `INSERT`, and workers log the resources created by an `INSERT`
+that failed.
+
+Writes don't support [fault-tolerant execution](https://trino.io/docs/current/admin/fault-tolerant-execution.html),
+and fail when the `retry-policy` property is set to `QUERY` or `TASK`.
+
+## INSERT
+
+The following tables support `INSERT`:
+
+- `ec2.images`, which creates an image from the instance set in the
+  `instance_id` column.
+- `ec2.instances`, which launches one instance for every row.
+- `s3.buckets`, which creates a bucket.
+
+A single `INSERT` statement can insert up to `aws.max-inserted-rows` rows, 10
+by default, and fails with the `AWS_TOO_MANY_INSERTED_ROWS` error code when it
+inserts more. When launching instances, the connector sets a client token
+derived from the query and the row, so if a request is sent again for the same
+row, it doesn't launch another instance.
+
+Columns are set in the fields of the AWS API request with the same name, so only
+some columns can be inserted, and inserting a column that doesn't have a
+matching request field fails. The values are converted back to the types of the
+request fields, so rows are set as nested objects. The `tags` column sets the
+tags of the created instance or image. For example:
+
+```sql
+INSERT INTO example.ec2.instances (image_id, instance_type, key_name, ebs_optimized, tags)
+VALUES ('ami-05f7491af5eef733a', 't2.micro', 'default', false, MAP(ARRAY['Name'], ARRAY['web']));
+```
+
+To create an image from an instance:
+
+```sql
+INSERT INTO example.ec2.images (instance_id, name)
+VALUES ('i-04a7cf7ca232cd251', 'web-backup');
+```
+
+When inserting into `s3.buckets`, the bucket is created in the region of the
+catalog, unless the `bucket_region` column is set:
+
+```sql
+INSERT INTO example.s3.buckets (name, bucket_region)
+VALUES ('my-bucket', 'eu-central-1');
+```
+
+## UPDATE
+
+Only the `ec2.instances` table supports `UPDATE`, and only of the `state_name`
+and `instance_type` columns. Setting a column to `NULL` is not supported. `UPDATE`
+requires a filter on the `instance_id` column, so a single statement can't
+change every instance at once.
+
+To stop or start an instance, set its state name to `stopped` or `running`:
+
+```sql
+UPDATE example.ec2.instances
+SET state_name = 'stopped'
+WHERE instance_id = 'i-04a7cf7ca232cd251';
+```
+
+To change the instance type, stop the instance first, because AWS only allows it
+for stopped instances:
+
+```sql
+UPDATE example.ec2.instances
+SET instance_type = 't3.small'
+WHERE instance_id = 'i-04a7cf7ca232cd251';
+```
+
+When updating both columns in one statement, the connector changes the instance
+type before starting the instance.
+
+## DELETE
+
+The following tables support `DELETE`:
+
+- `ec2.images`, which deregisters the image. The snapshots of the image are not
+  deleted.
+- `ec2.instances`, which terminates the instance.
+
+`DELETE` requires a filter on the `image_id` or `instance_id` column, so a
+single statement can't remove every resource at once. Statements without it
+fail with the `AWS_MISSING_PREDICATE` error code.
+
+```sql
+DELETE FROM example.ec2.instances
+WHERE instance_id = 'i-04a7cf7ca232cd251';
+```
+
+The row isn't immediately removed from the table if the instance is running, as
+it stays in the `shutting-down` state for a while.
+
+# Error codes
+
+The connector reports the following error codes, besides the standard Trino
+error codes:
+
+AWS connector error codes:
+
+| Error code                   | Type         | Description                                                                                                                           |
+|------------------------------|--------------|---------------------------------------------------------------------------------------------------------------------------------------|
+| `AWS_API_ERROR`              | `EXTERNAL`   | An AWS API request failed, for example because of missing IAM permissions.                                                            |
+| `AWS_THROTTLED`              | `EXTERNAL`   | AWS throttled the requests, and the retries set by `aws.retry-mode` and `aws.max-error-retries` were exhausted.                       |
+| `AWS_MISSING_PREDICATE`      | `USER_ERROR` | The query doesn't have a filter required by the table, or an `UPDATE` or `DELETE` statement doesn't filter on the primary key column. |
+| `AWS_TOO_MANY_INSERTED_ROWS` | `USER_ERROR` | An `INSERT` statement inserts more rows than `aws.max-inserted-rows`.                                                                 |
+
+# Limitations
+
+- A catalog queries a single region. To query multiple regions, create a
+  catalog for every region, see
+  [#291](https://github.com/nineinchnick/trino-cloud/issues/291).
+- Every table scan is a single split, which runs on one worker, see
+  [#294](https://github.com/nineinchnick/trino-cloud/issues/294).
+- The connector doesn't provide table or column statistics, so the cost-based
+  optimizer can't estimate the size of the tables.
+- Only the filters listed in [Tables](#tables) are pushed down. `LIMIT` and other
+  predicates are applied by Trino after listing all matching resources.
+- Every query lists the resources again, there is no caching.
 
 # Build
 
@@ -347,8 +567,11 @@ To add a new table that can be read from:
    If a name is split in the wrong place, or two fields would end up with the same column name, which fails creating the catalog,
    add the mixed-case word to `WORDS` in [SdkColumns](src/main/java/pl/net/was/cloud/aws/SdkColumns.java).
 2. Otherwise, use `AwsTable.builder(name, columns)` and set a `rowSource`, which generates rows for a table handle.
-   Use `SdkColumns.columns(extraColumns, sdkFields)` to add columns that aren't in the SDK model.
-3. Profit!
+   Use `SdkColumns.columns(extraColumns, sdkFields)` to add columns that aren't in the SDK model,
+   and populate them in the row source. See the `ec2.instances` definition, which adds `row_id` and `state_name`.
+3. Add the table to the [Tables](#tables) section of this README.
+   `TestAwsDocumentation` fails if a table is missing from it.
+4. Profit!
 
 > Note: if the corresponding API method requires predicates that don't map to any field in the response,
 > add an extra column, set a `filterApplier` that supports it, and populate the column from the predicate in the row source.

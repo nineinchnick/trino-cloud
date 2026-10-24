@@ -28,7 +28,8 @@ docker run \
 ```
 
 The image already includes the `aws` catalog, configured by [catalog/aws.properties](catalog/aws.properties).
-See [Credentials](trino-cloud-aws/README.md#credentials) for other ways to pass credentials, like AWS CLI profiles.
+See [Using an AWS CLI profile](trino-cloud-aws/README.md#using-an-aws-cli-profile) to use AWS CLI profiles,
+and [Credentials](trino-cloud-aws/README.md#credentials) for other ways to pass credentials.
 
 Then use your favourite SQL client to connect to Trino running at http://localhost:8080
 
@@ -47,7 +48,7 @@ aws.region=${ENV:AWS_REGION}
 
 By default, the connector reads credentials using the AWS SDK default credentials provider chain.
 Each catalog can set its own credentials, so you can use multiple AWS accounts at the same time.
-See the [connector configuration](trino-cloud-aws/README.md#configuration) for all properties.
+See the [connector documentation](trino-cloud-aws/README.md) for all properties, IAM permissions, and the list of tables.
 
 After restarting Trino, you should be able to connect to the `aws` catalog.
 
