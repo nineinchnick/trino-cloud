@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package pl.net.was.cloud.aws;
 
 import io.trino.spi.TrinoException;
