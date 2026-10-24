@@ -14,18 +14,28 @@
 
 package pl.net.was.cloud.aws;
 
+import com.google.common.collect.ImmutableList;
 import io.trino.spi.connector.ConnectorMergeTableHandle;
 
+import java.util.List;
+import java.util.Map;
+
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 
-public record AwsMergeTableHandle(AwsTableHandle tableHandle, AwsInsertTableHandle insertHandle)
+/**
+ * @param updateCaseColumns names of the columns updated by each merge case, by the merge case number
+ */
+public record AwsMergeTableHandle(AwsTableHandle tableHandle, AwsInsertTableHandle insertHandle, Map<Integer, List<String>> updateCaseColumns)
         implements ConnectorMergeTableHandle
 {
     public AwsMergeTableHandle
     {
         requireNonNull(tableHandle, "tableHandle is null");
         requireNonNull(insertHandle, "insertHandle is null");
+        updateCaseColumns = requireNonNull(updateCaseColumns, "updateCaseColumns is null").entrySet().stream()
+                .collect(toImmutableMap(Map.Entry::getKey, entry -> ImmutableList.copyOf(entry.getValue())));
         checkArgument(
                 tableHandle.schemaTableName().equals(insertHandle.tableHandle().schemaTableName()),
                 "tableHandle and insertHandle refer to different tables");
